@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+logs/*
+!logs/.gitkeep
+
+# Data
+data/*
+!data/raw/
+!data/raw/.gitkeep
+!data/interim/
+!data/interim/.gitkeep
+!data/processed/
+!data/processed/.gitkeep
+!data/vector_db/
+!data/vector_db/.gitkeep
+
+# Ignore actual contents in data subfolders
+data/raw/*
+!data/raw/.gitkeep
+data/interim/*
+!data/interim/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/vector_db/*
+!data/vector_db/.gitkeep
+
+# Databases
+*.db
+*.sqlite3

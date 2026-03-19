@@ -1,0 +1,261 @@
+from __future__ import annotations
+
+import argparse
+import logging
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from src.extract.audio_extractor import AudioExtractor
+from src.extract.frame_extractor import FrameExtractor
+from src.indexing.vector_indexer import VectorIndexer
+from src.retrieval.search_engine import SearchEngine
+from src.transform.vision_processor import VisionProcessor
+from src.transform.whisper_processor import WhisperProcessor
+from src.utils import (
+    get_config,
+    get_data_path,
+    md5_of_file,
+    release_memory,
+    save_json,
+    setup_logging,
+    stage_timer,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class MediaDataPipeline:
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        self.config = config or get_config()
+
+        self.audio_extractor = AudioExtractor(self.config)
+        self.frame_extractor = FrameExtractor(self.config)
+        self.whisper_processor = WhisperProcessor(self.config)
+        self.vision_processor = VisionProcessor(self.config)
+
+        self.vector_indexer = VectorIndexer(self.config)
+        self.search_engine = SearchEngine(
+            config=self.config,
+            vector_indexer=self.vector_indexer,
+        )
+
+        self.processed_dir = Path(
+            get_data_path(self.config["paths"].get("processed_dir", "data/processed"))
+        )
+        self.processed_dir.mkdir(parents=True, exist_ok=True)
+
+        self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "1.0.0"))
+        self.save_run_metadata = bool(self.config.get("pipeline", {}).get("save_run_metadata", True))
+
+    def _build_base_result(self, video_path: str) -> Dict[str, Any]:
+        video_name = Path(video_path).name
+        return {
+            "video_name": video_name,
+            "video_path": video_path,
+            "audio_path": None,
+            "frames_dir": None,
+            "transcription_records": 0,
+            "caption_records": 0,
+            "multimodal_records": 0,
+            "merged_output_path": None,
+            "run_metadata_path": None,
+            "stage_status": {
+                "extract_audio": "pending",
+                "extract_frames": "pending",
+                "transcribe": "pending",
+                "caption": "pending",
+                "index": "pending",
+            },
+        }
+
+    def _mark_stage(self, result: Dict[str, Any], stage_name: str, status: str):
+        result["stage_status"][stage_name] = status
+
+    def process_video(self, video_path: str, reset_index: bool = False) -> Dict[str, Any]:
+        video_path = str(Path(video_path).resolve())
+        video_name = Path(video_path).name
+
+        logger.info("Starting pipeline for video: %s", video_name)
+        result = self._build_base_result(video_path)
+
+        audio_path = None
+        frames_dir = None
+        transcription_data = None
+        captions_data = None
+
+        video_file = Path(video_path)
+        if not video_file.exists():
+            raise FileNotFoundError(f"Video file not found: {video_path}")
+
+        runtime_metadata = {
+            "video_name": video_name,
+            "video_path": video_path,
+            "pipeline_version": self.pipeline_version,
+            "video_size_bytes": video_file.stat().st_size,
+            "video_checksum_md5": md5_of_file(video_path),
+        }
+
+        try:
+            with stage_timer("extract_audio"):
+                audio_path = self.audio_extractor.extract_audio(video_path)
+                result["audio_path"] = audio_path
+                self._mark_stage(result, "extract_audio", "done")
+        except Exception:
+            self._mark_stage(result, "extract_audio", "failed")
+            raise
+
+        try:
+            with stage_timer("extract_frames"):
+                frames_dir = self.frame_extractor.extract_frames(video_path)
+                result["frames_dir"] = frames_dir
+                self._mark_stage(result, "extract_frames", "done")
+        except Exception:
+            self._mark_stage(result, "extract_frames", "failed")
+            raise
+
+        try:
+            with stage_timer("transcribe"):
+                transcription_data = self.whisper_processor.transcribe(audio_path, video_name=video_name)
+                self._mark_stage(result, "transcribe", "done")
+        except Exception:
+            self._mark_stage(result, "transcribe", "failed")
+            raise
+        finally:
+            self.whisper_processor.unload_model()
+
+        if not transcription_data:
+            transcription_data = {
+                "video_name": video_name,
+                "audio_path": audio_path,
+                "language": self.config["models"]["whisper"].get("language", "vi"),
+                "full_text": "",
+                "segments": [],
+                "model_name": self.config["models"]["whisper"].get("name", "base"),
+            }
+
+        try:
+            with stage_timer("caption"):
+                captions_data = self.vision_processor.process_frames(frames_dir, video_name=video_name)
+                self._mark_stage(result, "caption", "done")
+        except Exception:
+            self._mark_stage(result, "caption", "failed")
+            raise
+        finally:
+            self.vision_processor.unload_model()
+
+        if captions_data is None:
+            captions_data = []
+
+        try:
+            with stage_timer("index"):
+                if reset_index:
+                    deleted_count = self.vector_indexer.delete_video_data(video_name)
+                    logger.info("Deleted %d previous records for '%s'", deleted_count, video_name)
+
+                trans_count = self.vector_indexer.index_transcriptions(transcription_data)
+                cap_count = self.vector_indexer.index_captions(captions_data)
+                multi_count = self.vector_indexer.index_multimodal_documents(
+                    transcription_data=transcription_data,
+                    captions_data=captions_data,
+                )
+                self._mark_stage(result, "index", "done")
+        except Exception:
+            self._mark_stage(result, "index", "failed")
+            raise
+
+        merged_output = {
+            "video_name": video_name,
+            "video_path": video_path,
+            "audio_path": audio_path,
+            "frames_dir": frames_dir,
+            "transcription": transcription_data,
+            "captions": captions_data,
+            "indexing_summary": {
+                "transcription_records": trans_count,
+                "caption_records": cap_count,
+                "multimodal_records": multi_count,
+                "total_records": trans_count + cap_count + multi_count,
+            },
+            "runtime_metadata": runtime_metadata,
+        }
+
+        merged_output_path = self.processed_dir / f"{Path(video_name).stem}_merged_output.json"
+        save_json(merged_output, merged_output_path)
+
+        result["transcription_records"] = trans_count
+        result["caption_records"] = cap_count
+        result["multimodal_records"] = multi_count
+        result["merged_output_path"] = str(merged_output_path)
+
+        if self.save_run_metadata:
+            run_metadata = {
+                "video_name": video_name,
+                "pipeline_version": self.pipeline_version,
+                "stage_status": result["stage_status"],
+                "runtime_metadata": runtime_metadata,
+                "indexing_summary": merged_output["indexing_summary"],
+            }
+            run_metadata_path = self.processed_dir / f"{Path(video_name).stem}_run_metadata.json"
+            save_json(run_metadata, run_metadata_path)
+            result["run_metadata_path"] = str(run_metadata_path)
+
+        release_memory()
+
+        logger.info(
+            "Pipeline finished for '%s'. Indexed %d transcription, %d caption, %d multimodal records.",
+            video_name,
+            trans_count,
+            cap_count,
+            multi_count,
+        )
+        return result
+
+    def search(
+        self,
+        query: str,
+        top_k: int = 5,
+        content_type: Optional[str] = None,
+        video_name: Optional[str] = None,
+    ):
+        return self.search_engine.search(
+            query=query,
+            top_k=top_k,
+            content_type=content_type,
+            video_name=video_name,
+        )
+
+
+def main():
+    setup_logging()
+
+    parser = argparse.ArgumentParser(description="Media Data Pipeline")
+    parser.add_argument("--video", type=str, help="Path to video file")
+    parser.add_argument("--query", type=str, help="Semantic query")
+    parser.add_argument("--top-k", type=int, default=5, help="Top K results")
+    parser.add_argument("--content-type", type=str, default=None, help="Filter by content type")
+    parser.add_argument("--video-name", type=str, default=None, help="Filter by video name")
+    parser.add_argument(
+        "--reset-index",
+        action="store_true",
+        help="Delete previous indexed data for this video before re-index",
+    )
+    args = parser.parse_args()
+
+    pipeline = MediaDataPipeline()
+
+    if args.video:
+        result = pipeline.process_video(args.video, reset_index=args.reset_index)
+        print(result)
+
+    if args.query:
+        results = pipeline.search(
+            args.query,
+            top_k=args.top_k,
+            content_type=args.content_type,
+            video_name=args.video_name,
+        )
+        print(results)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,46 @@
+paths:
+  raw_dir: "data/raw"
+  interim_audio_dir: "data/interim/audio"
+  interim_frames_dir: "data/interim/frames"
+  interim_transcripts_dir: "data/interim/transcripts"
+  interim_captions_dir: "data/interim/captions"
+  processed_dir: "data/processed"
+  vector_db_dir: "data/vector_db"
+
+video:
+  frame_sampling_fps: 0.5
+  max_frames: 180
+  max_frame_width: 960
+  max_frame_height: 540
+
+models:
+  whisper:
+    name: "base"
+    language: "vi"
+    use_fp16: true
+    fallback_to_cpu_on_oom: true
+
+  vision:
+    name: "Salesforce/blip-image-captioning-base"
+    max_length: 40
+    image_size: 384
+    fallback_to_cpu_on_oom: true
+
+  embedding:
+    name: "sentence-transformers/all-MiniLM-L6-v2"
+    batch_size: 32
+
+pipeline:
+  version: "1.1.0"
+  segment_window: 3
+  segment_overlap: 1
+  caption_merge_window_sec: 3.0
+  enable_multimodal_documents: true
+  save_run_metadata: true
+
+vector_db:
+  collection_name: "video_semantic_search"
+  distance_metric: "cosine"
+
+api:
+  base_url: "http://127.0.0.1:8000"
