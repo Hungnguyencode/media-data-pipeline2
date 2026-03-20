@@ -59,6 +59,8 @@ class MediaDataPipeline:
             "multimodal_records": 0,
             "merged_output_path": None,
             "run_metadata_path": None,
+            "stage_metrics_sec": {},
+            "data_summary": {},
             "stage_status": {
                 "extract_audio": "pending",
                 "extract_frames": "pending",
@@ -68,7 +70,7 @@ class MediaDataPipeline:
             },
         }
 
-    def _mark_stage(self, result: Dict[str, Any], stage_name: str, status: str):
+    def _mark_stage(self, result: Dict[str, Any], stage_name: str, status: str) -> None:
         result["stage_status"][stage_name] = status
 
     def process_video(self, video_path: str, reset_index: bool = False) -> Dict[str, Any]:
@@ -95,8 +97,10 @@ class MediaDataPipeline:
             "video_checksum_md5": md5_of_file(video_path),
         }
 
+        stage_metrics = result["stage_metrics_sec"]
+
         try:
-            with stage_timer("extract_audio"):
+            with stage_timer("extract_audio", stage_metrics):
                 audio_path = self.audio_extractor.extract_audio(video_path)
                 result["audio_path"] = audio_path
                 self._mark_stage(result, "extract_audio", "done")
@@ -105,7 +109,7 @@ class MediaDataPipeline:
             raise
 
         try:
-            with stage_timer("extract_frames"):
+            with stage_timer("extract_frames", stage_metrics):
                 frames_dir = self.frame_extractor.extract_frames(video_path)
                 result["frames_dir"] = frames_dir
                 self._mark_stage(result, "extract_frames", "done")
@@ -114,7 +118,7 @@ class MediaDataPipeline:
             raise
 
         try:
-            with stage_timer("transcribe"):
+            with stage_timer("transcribe", stage_metrics):
                 transcription_data = self.whisper_processor.transcribe(audio_path, video_name=video_name)
                 self._mark_stage(result, "transcribe", "done")
         except Exception:
@@ -134,7 +138,7 @@ class MediaDataPipeline:
             }
 
         try:
-            with stage_timer("caption"):
+            with stage_timer("caption", stage_metrics):
                 captions_data = self.vision_processor.process_frames(frames_dir, video_name=video_name)
                 self._mark_stage(result, "caption", "done")
         except Exception:
@@ -147,7 +151,8 @@ class MediaDataPipeline:
             captions_data = []
 
         try:
-            with stage_timer("index"):
+            with stage_timer("index", stage_metrics):
+                deleted_count = 0
                 if reset_index:
                     deleted_count = self.vector_indexer.delete_video_data(video_name)
                     logger.info("Deleted %d previous records for '%s'", deleted_count, video_name)
@@ -163,6 +168,16 @@ class MediaDataPipeline:
             self._mark_stage(result, "index", "failed")
             raise
 
+        data_summary = {
+            "transcript_segment_count": len(transcription_data.get("segments", [])),
+            "frame_caption_count": len(captions_data),
+            "indexed_transcription_records": trans_count,
+            "indexed_caption_records": cap_count,
+            "indexed_multimodal_records": multi_count,
+            "indexed_total_records": trans_count + cap_count + multi_count,
+            "deleted_previous_records": deleted_count if reset_index else 0,
+        }
+
         merged_output = {
             "video_name": video_name,
             "video_path": video_path,
@@ -170,13 +185,19 @@ class MediaDataPipeline:
             "frames_dir": frames_dir,
             "transcription": transcription_data,
             "captions": captions_data,
-            "indexing_summary": {
-                "transcription_records": trans_count,
-                "caption_records": cap_count,
-                "multimodal_records": multi_count,
-                "total_records": trans_count + cap_count + multi_count,
-            },
+            "indexing_summary": data_summary,
             "runtime_metadata": runtime_metadata,
+            "stage_metrics_sec": stage_metrics,
+            "output_schema_notes": {
+                "video_name": "Tên file video nguồn",
+                "audio_path": "Đường dẫn file audio đã trích xuất",
+                "frame_name": "Tên frame ảnh",
+                "timestamp": "Mốc thời gian theo giây",
+                "content_type": "Loại tài liệu index",
+                "source_modality": "Nguồn dữ liệu: audio/image/audio+image",
+                "model_name": "Tên model dùng để sinh dữ liệu",
+                "pipeline_version": "Phiên bản pipeline",
+            },
         }
 
         merged_output_path = self.processed_dir / f"{Path(video_name).stem}_merged_output.json"
@@ -186,14 +207,16 @@ class MediaDataPipeline:
         result["caption_records"] = cap_count
         result["multimodal_records"] = multi_count
         result["merged_output_path"] = str(merged_output_path)
+        result["data_summary"] = data_summary
 
         if self.save_run_metadata:
             run_metadata = {
                 "video_name": video_name,
                 "pipeline_version": self.pipeline_version,
                 "stage_status": result["stage_status"],
+                "stage_metrics_sec": stage_metrics,
                 "runtime_metadata": runtime_metadata,
-                "indexing_summary": merged_output["indexing_summary"],
+                "indexing_summary": data_summary,
             }
             run_metadata_path = self.processed_dir / f"{Path(video_name).stem}_run_metadata.json"
             save_json(run_metadata, run_metadata_path)

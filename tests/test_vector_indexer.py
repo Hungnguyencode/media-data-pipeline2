@@ -68,7 +68,7 @@ class TestableVectorIndexer(VectorIndexer):
                 "segment_overlap": 1,
                 "caption_merge_window_sec": 3.0,
                 "enable_multimodal_documents": True,
-                "version": "1.1.0",
+                "version": "1.2.0",
             },
         }
         self.device = "cpu"
@@ -81,7 +81,7 @@ class TestableVectorIndexer(VectorIndexer):
         self.segment_overlap = 1
         self.caption_merge_window_sec = 3.0
         self.enable_multimodal_documents = True
-        self.pipeline_version = "1.1.0"
+        self.pipeline_version = "1.2.0"
         self.embedding_model = FakeEmbeddingModel()
         self.collection = FakeCollection()
         self.client = FakeClient(self.collection)

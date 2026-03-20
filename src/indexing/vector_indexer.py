@@ -10,7 +10,7 @@ import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
-from src.utils import get_config, get_data_path, normalize_device, safe_float
+from src.utils import format_timestamp, get_config, get_data_path, normalize_device, safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,10 @@ class VectorIndexer:
 
         self.embedding_model_name = self.config["models"]["embedding"]["name"]
         self.batch_size = int(self.config["models"]["embedding"].get("batch_size", 32))
+        self.normalize_embeddings = bool(
+            self.config["models"]["embedding"].get("normalize_embeddings", True)
+        )
+
         self.segment_window = int(self.config.get("pipeline", {}).get("segment_window", 3))
         self.segment_overlap = int(self.config.get("pipeline", {}).get("segment_overlap", 1))
         self.caption_merge_window_sec = float(
@@ -43,7 +47,7 @@ class VectorIndexer:
 
         self.client = chromadb.PersistentClient(
             path=str(self.persist_dir),
-            settings=Settings(anonymized_telemetry=False)
+            settings=Settings(anonymized_telemetry=False),
         )
 
         self.collection = self._get_or_create_collection()
@@ -55,7 +59,7 @@ class VectorIndexer:
             logger.info("Collection '%s' not found. Creating new one.", self.collection_name)
             return self.client.create_collection(
                 name=self.collection_name,
-                metadata={"hnsw:space": self.distance_metric}
+                metadata={"hnsw:space": self.distance_metric},
             )
 
     def _stable_id(self, prefix: str, payload: Dict[str, Any]) -> str:
@@ -67,18 +71,60 @@ class VectorIndexer:
         if not texts:
             return []
 
+        batch_size = getattr(self, "batch_size", 32)
+        normalize_embeddings = getattr(self, "normalize_embeddings", True)
+
         embeddings = self.embedding_model.encode(
             texts,
-            batch_size=self.batch_size,
+            batch_size=batch_size,
             convert_to_numpy=True,
             show_progress_bar=False,
-            normalize_embeddings=True
+            normalize_embeddings=normalize_embeddings,
         )
 
         if hasattr(embeddings, "tolist"):
             return embeddings.tolist()
 
         return [list(vec) for vec in embeddings]
+
+    def _base_metadata(
+        self,
+        *,
+        video_name: str,
+        content_type: str,
+        source_modality: str,
+        model_name: Optional[str] = None,
+        timestamp: Optional[float] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        frame_name: Optional[str] = None,
+        image_path: Optional[str] = None,
+        document_language: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        pipeline_version = getattr(self, "pipeline_version", "1.0.0")
+
+        metadata: Dict[str, Any] = {
+            "video_name": video_name,
+            "content_type": content_type,
+            "source_modality": source_modality,
+            "model_name": model_name,
+            "pipeline_version": pipeline_version,
+            "timestamp": timestamp,
+            "timestamp_str": format_timestamp(timestamp),
+            "start_time": start_time,
+            "start_time_str": format_timestamp(start_time),
+            "end_time": end_time,
+            "end_time_str": format_timestamp(end_time),
+            "frame_name": frame_name,
+            "image_path": image_path,
+            "document_language": document_language,
+        }
+
+        if extra:
+            metadata.update(extra)
+
+        return metadata
 
     def delete_video_data(self, video_name: str) -> int:
         logger.info("Deleting existing indexed data for video: %s", video_name)
@@ -111,10 +157,12 @@ class VectorIndexer:
             return []
 
         chunks: List[Dict[str, Any]] = []
-        step = max(1, self.segment_window - self.segment_overlap)
+        segment_window = getattr(self, "segment_window", 3)
+        segment_overlap = getattr(self, "segment_overlap", 1)
+        step = max(1, segment_window - segment_overlap)
 
         for i in range(0, len(cleaned), step):
-            group = cleaned[i:i + self.segment_window]
+            group = cleaned[i : i + segment_window]
             if not group:
                 continue
 
@@ -127,7 +175,7 @@ class VectorIndexer:
                 }
             )
 
-            if i + self.segment_window >= len(cleaned):
+            if i + segment_window >= len(cleaned):
                 break
 
         return chunks
@@ -138,12 +186,14 @@ class VectorIndexer:
         start_time: float,
         end_time: float,
     ) -> List[str]:
-        matched = []
+        matched: List[str] = []
+        window_sec = getattr(self, "caption_merge_window_sec", 3.0)
+
         for item in captions_data:
             ts = safe_float(item.get("timestamp"), -1.0)
             if ts < 0:
                 continue
-            if (start_time - self.caption_merge_window_sec) <= ts <= (end_time + self.caption_merge_window_sec):
+            if (start_time - window_sec) <= ts <= (end_time + window_sec):
                 caption = (item.get("caption") or "").strip()
                 if caption:
                     matched.append(caption)
@@ -166,17 +216,15 @@ class VectorIndexer:
             }
             ids.append(self._stable_id("transcription", payload))
             texts.append(full_text)
-            metadatas.append({
-                "video_name": video_name,
-                "content_type": "transcription",
-                "start_time": None,
-                "end_time": None,
-                "timestamp": None,
-                "timestamp_str": None,
-                "pipeline_version": self.pipeline_version,
-                "model_name": transcription_data.get("model_name"),
-                "source_modality": "audio",
-            })
+            metadatas.append(
+                self._base_metadata(
+                    video_name=video_name,
+                    content_type="transcription",
+                    source_modality="audio",
+                    model_name=transcription_data.get("model_name"),
+                    document_language=transcription_data.get("language"),
+                )
+            )
 
         chunks = self._build_segment_chunks(segments)
         for chunk in chunks:
@@ -189,17 +237,18 @@ class VectorIndexer:
             }
             ids.append(self._stable_id("segment_chunk", payload))
             texts.append(chunk["text"])
-            metadatas.append({
-                "video_name": video_name,
-                "content_type": "segment_chunk",
-                "start_time": chunk["start"],
-                "end_time": chunk["end"],
-                "timestamp": chunk["start"],
-                "timestamp_str": None,
-                "pipeline_version": self.pipeline_version,
-                "model_name": transcription_data.get("model_name"),
-                "source_modality": "audio",
-            })
+            metadatas.append(
+                self._base_metadata(
+                    video_name=video_name,
+                    content_type="segment_chunk",
+                    source_modality="audio",
+                    model_name=transcription_data.get("model_name"),
+                    timestamp=chunk["start"],
+                    start_time=chunk["start"],
+                    end_time=chunk["end"],
+                    document_language=transcription_data.get("language"),
+                )
+            )
 
         if not texts:
             logger.warning("No transcription text found for video '%s'", video_name)
@@ -210,7 +259,7 @@ class VectorIndexer:
             ids=ids,
             documents=texts,
             embeddings=embeddings,
-            metadatas=metadatas
+            metadatas=metadatas,
         )
 
         logger.info("Indexed %d transcription records for '%s'", len(ids), video_name)
@@ -229,7 +278,7 @@ class VectorIndexer:
             video_name = item["video_name"]
             frame_name = item.get("frame_name")
             image_path = item.get("image_path")
-            timestamp = item.get("timestamp")
+            timestamp = safe_float(item.get("timestamp"), 0.0)
 
             payload = {
                 "video_name": video_name,
@@ -241,17 +290,18 @@ class VectorIndexer:
 
             ids.append(self._stable_id("caption", payload))
             texts.append(caption)
-            metadatas.append({
-                "video_name": video_name,
-                "content_type": "caption",
-                "frame_name": frame_name,
-                "image_path": image_path,
-                "timestamp": timestamp,
-                "timestamp_str": item.get("timestamp_str"),
-                "pipeline_version": self.pipeline_version,
-                "model_name": item.get("model_name"),
-                "source_modality": "image",
-            })
+            metadatas.append(
+                self._base_metadata(
+                    video_name=video_name,
+                    content_type="caption",
+                    source_modality="image",
+                    model_name=item.get("model_name"),
+                    timestamp=timestamp,
+                    frame_name=frame_name,
+                    image_path=image_path,
+                    document_language=item.get("language", "en"),
+                )
+            )
 
         if not texts:
             logger.warning("No captions to index.")
@@ -262,7 +312,7 @@ class VectorIndexer:
             ids=ids,
             documents=texts,
             embeddings=embeddings,
-            metadatas=metadatas
+            metadatas=metadatas,
         )
 
         logger.info("Indexed %d caption records", len(ids))
@@ -273,7 +323,7 @@ class VectorIndexer:
         transcription_data: Dict[str, Any],
         captions_data: List[Dict[str, Any]],
     ) -> int:
-        if not self.enable_multimodal_documents:
+        if not getattr(self, "enable_multimodal_documents", True):
             return 0
 
         video_name = transcription_data["video_name"]
@@ -307,17 +357,20 @@ class VectorIndexer:
 
             ids.append(self._stable_id("multimodal", payload))
             texts.append(merged_doc)
-            metadatas.append({
-                "video_name": video_name,
-                "content_type": "multimodal",
-                "start_time": chunk["start"],
-                "end_time": chunk["end"],
-                "timestamp": chunk["start"],
-                "timestamp_str": None,
-                "pipeline_version": self.pipeline_version,
-                "source_modality": "audio+image",
-                "num_attached_captions": len(nearby_captions[:3]),
-            })
+            metadatas.append(
+                self._base_metadata(
+                    video_name=video_name,
+                    content_type="multimodal",
+                    source_modality="audio+image",
+                    timestamp=chunk["start"],
+                    start_time=chunk["start"],
+                    end_time=chunk["end"],
+                    document_language="vi+en",
+                    extra={
+                        "num_attached_captions": len(nearby_captions[:3]),
+                    },
+                )
+            )
 
         if not texts:
             logger.info("No multimodal documents created for '%s'", video_name)
@@ -328,7 +381,7 @@ class VectorIndexer:
             ids=ids,
             documents=texts,
             embeddings=embeddings,
-            metadatas=metadatas
+            metadatas=metadatas,
         )
 
         logger.info("Indexed %d multimodal records for '%s'", len(ids), video_name)

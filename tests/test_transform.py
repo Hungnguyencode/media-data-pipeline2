@@ -30,6 +30,7 @@ class DummyVisionProcessor(VisionProcessor):
         self.fallback_to_cpu_on_oom = True
         self.processor = None
         self.model = None
+        self.pipeline_version = "1.2.0"
         self.output_dir = tmp_path / "interim_captions"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.processed_dir = tmp_path / "processed"
@@ -60,6 +61,7 @@ class DummyWhisperProcessor(WhisperProcessor):
         self.language = "vi"
         self.use_fp16 = False
         self.fallback_to_cpu_on_oom = True
+        self.pipeline_version = "1.2.0"
         self.output_dir = tmp_path / "interim_transcripts"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.processed_dir = tmp_path / "processed"

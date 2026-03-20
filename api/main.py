@@ -89,13 +89,17 @@ def search(request: SearchRequest):
 
         formatted = []
         for r in results:
+            similarity_score = r.get("similarity_score")
+            if similarity_score is None and "relevance" in r:
+                similarity_score = r.get("relevance")
+
             formatted.append(
                 {
-                    "document": r["document"],
-                    "metadata": r["metadata"],
-                    "distance": r["distance"],
-                    "relevance": r["relevance"],
-                    "score_type": r.get("score_type"),
+                    "document": r.get("document"),
+                    "metadata": r.get("metadata"),
+                    "distance": r.get("distance"),
+                    "similarity_score": similarity_score,
+                    "score_type": r.get("score_type", "legacy_or_unspecified"),
                 }
             )
 
@@ -152,10 +156,10 @@ def upload_video(
     save_path = upload_dir / safe_name
     if save_path.exists():
         stem = save_path.stem
-        suffix = save_path.suffix
+        ext = save_path.suffix
         counter = 1
         while save_path.exists():
-            save_path = upload_dir / f"{stem}_{counter}{suffix}"
+            save_path = upload_dir / f"{stem}_{counter}{ext}"
             counter += 1
 
     try:

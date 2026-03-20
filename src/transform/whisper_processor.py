@@ -23,6 +23,7 @@ class WhisperProcessor:
         self.language = whisper_cfg.get("language", "vi")
         self.use_fp16 = bool(whisper_cfg.get("use_fp16", True))
         self.fallback_to_cpu_on_oom = bool(whisper_cfg.get("fallback_to_cpu_on_oom", True))
+        self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "1.0.0"))
 
         self.output_dir = Path(
             get_data_path(self.config["paths"].get("interim_transcripts_dir", "data/interim/transcripts"))
@@ -106,11 +107,13 @@ class WhisperProcessor:
         result = {
             "video_name": video_name,
             "audio_path": str(audio_file),
-            "language": raw_result.get("language", self.language),
+            "language": raw_result.get("language", getattr(self, "language", "vi")),
             "full_text": self._clean_text(raw_result.get("text", "")),
             "segments": segments,
-            "model_name": self.model_name,
-            "device_used": str(self.device),
+            "model_name": getattr(self, "model_name", "unknown"),
+            "device_used": str(getattr(self, "device", "cpu")),
+            "pipeline_version": getattr(self, "pipeline_version", "1.0.0"),
+            "source_modality": "audio",
         }
 
         interim_output = self.output_dir / f"{Path(video_name).stem}_transcript.json"

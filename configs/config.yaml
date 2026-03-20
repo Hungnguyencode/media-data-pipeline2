@@ -12,6 +12,7 @@ video:
   max_frames: 180
   max_frame_width: 960
   max_frame_height: 540
+  allowed_suffixes: [".mp4", ".avi", ".mov", ".mkv", ".webm"]
 
 models:
   whisper:
@@ -25,22 +26,27 @@ models:
     max_length: 40
     image_size: 384
     fallback_to_cpu_on_oom: true
+    output_language: "en"
 
   embedding:
-    name: "sentence-transformers/all-MiniLM-L6-v2"
+    name: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     batch_size: 32
+    normalize_embeddings: true
 
 pipeline:
-  version: "1.1.0"
+  version: "1.2.0"
   segment_window: 3
   segment_overlap: 1
   caption_merge_window_sec: 3.0
   enable_multimodal_documents: true
   save_run_metadata: true
+  max_top_k: 50
+  default_top_k: 5
 
 vector_db:
   collection_name: "video_semantic_search"
   distance_metric: "cosine"
+  export_batch_size: 1000
 
 api:
   base_url: "http://127.0.0.1:8000"

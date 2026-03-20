@@ -31,7 +31,7 @@ class FakeVectorIndexer:
             "persist_dir": "data/vector_db",
             "embedding_model": "fake-model",
             "distance_metric": "cosine",
-            "pipeline_version": "1.1.0",
+            "pipeline_version": "1.2.0",
         }
 
 

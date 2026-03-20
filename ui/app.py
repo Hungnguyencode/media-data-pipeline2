@@ -35,6 +35,7 @@ st.title("Media Semantic Search")
 with st.sidebar:
     st.markdown("### Backend")
     st.code(API_BASE)
+    st.caption("Lưu ý: Score hiển thị là similarity proxy = 1 - distance, không phải xác suất.")
 
 tab1, tab2, tab3 = st.tabs(["Search", "Upload & Process", "Process by Path"])
 
@@ -103,10 +104,14 @@ with tab1:
                         with col2:
                             st.write("Loại:", meta.get("content_type"))
                         with col3:
-                            if result.get("relevance") is not None:
-                                st.write("Relevance:", f"{result['relevance']:.4f}")
+                            score = result.get("similarity_score")
+                            if score is not None:
+                                st.write("Similarity proxy:", f"{score:.4f}")
                             else:
-                                st.write("Relevance:", "N/A")
+                                st.write("Similarity proxy:", "N/A")
+
+                        if result.get("distance") is not None:
+                            st.caption(f"Distance: {result['distance']:.6f}")
 
                         if result.get("score_type"):
                             st.caption(f"Score type: {result['score_type']}")
@@ -114,11 +119,23 @@ with tab1:
                         if meta.get("timestamp") is not None:
                             st.write("Timestamp:", meta.get("timestamp_str") or meta.get("timestamp"))
 
+                        if meta.get("start_time_str") and meta.get("end_time_str"):
+                            st.write(
+                                "Khoảng thời gian:",
+                                f"{meta.get('start_time_str')} -> {meta.get('end_time_str')}",
+                            )
+
                         if meta.get("frame_name"):
                             st.write("Frame:", meta.get("frame_name"))
 
                         if meta.get("source_modality"):
                             st.write("Modality:", meta.get("source_modality"))
+
+                        if meta.get("model_name"):
+                            st.write("Model:", meta.get("model_name"))
+
+                        if meta.get("document_language"):
+                            st.write("Language:", meta.get("document_language"))
 
                         st.divider()
 
@@ -134,7 +151,7 @@ with tab2:
     reset_index_upload = st.checkbox(
         "Xóa dữ liệu cũ của video này trước khi index lại",
         value=True,
-        key="upload_reset"
+        key="upload_reset",
     )
 
     if st.button("Upload & Process"):

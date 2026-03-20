@@ -75,7 +75,7 @@ class DummyMediaDataPipeline(MediaDataPipeline):
                 "processed_dir": str(tmp_path / "processed"),
             },
             "pipeline": {
-                "version": "1.1.0",
+                "version": "1.2.0",
                 "save_run_metadata": True,
             },
             "models": {
@@ -92,7 +92,7 @@ class DummyMediaDataPipeline(MediaDataPipeline):
         self.search_engine = FakeSearchEngine()
         self.processed_dir = Path(self.config["paths"]["processed_dir"])
         self.processed_dir.mkdir(parents=True, exist_ok=True)
-        self.pipeline_version = "1.1.0"
+        self.pipeline_version = "1.2.0"
         self.save_run_metadata = True
 
 

@@ -19,6 +19,8 @@ class SearchEngine:
         self.vector_indexer = vector_indexer or VectorIndexer(self.config)
         self.collection = self.vector_indexer.collection
         self.embedding_model = self.vector_indexer.embedding_model
+        self.max_top_k = int(self.config.get("pipeline", {}).get("max_top_k", 50))
+        self.default_top_k = int(self.config.get("pipeline", {}).get("default_top_k", 5))
 
     def _distance_to_similarity_proxy(self, distance: Optional[float]) -> Optional[float]:
         if distance is None:
@@ -28,7 +30,7 @@ class SearchEngine:
             return 0.0
         if score > 1.0:
             return 1.0
-        return score
+        return round(score, 6)
 
     def search(
         self,
@@ -40,6 +42,11 @@ class SearchEngine:
         query = query.strip()
         if not query:
             return []
+
+        if top_k <= 0:
+            top_k = self.default_top_k
+        if top_k > self.max_top_k:
+            top_k = self.max_top_k
 
         embedding = self.embedding_model.encode(
             [query],
@@ -81,6 +88,7 @@ class SearchEngine:
                     "document": doc,
                     "metadata": meta,
                     "distance": distance,
+                    "similarity_score": similarity_proxy,
                     "relevance": similarity_proxy,
                     "score_type": "similarity_proxy_from_distance",
                 }

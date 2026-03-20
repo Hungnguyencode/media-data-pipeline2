@@ -24,9 +24,11 @@ class VisionProcessor:
         self.model_name = model_name
         self.max_length = int(self.config["models"]["vision"].get("max_length", 40))
         self.image_size = int(self.config["models"]["vision"].get("image_size", 384))
+        self.output_language = self.config["models"]["vision"].get("output_language", "en")
         self.fallback_to_cpu_on_oom = bool(
             self.config["models"]["vision"].get("fallback_to_cpu_on_oom", True)
         )
+        self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "1.0.0"))
 
         self.processor = None
         self.model = None
@@ -112,49 +114,40 @@ class VisionProcessor:
             raise FileNotFoundError(f"Frames directory not found: {frames_dir}")
 
         image_files = sorted(
-            [p for p in frames_path.iterdir() if p.suffix.lower() in {".jpg", ".jpeg", ".png"}]
+            [
+                p for p in frames_path.iterdir()
+                if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png"}
+            ]
         )
 
         results: List[Dict[str, Any]] = []
-        failed_count = 0
+        for image_file in image_files:
+            caption = self._clean_caption(self.generate_caption(str(image_file)))
+            timestamp = self._extract_timestamp_from_filename(image_file.name)
 
-        logger.info("Processing %d frames for video '%s'", len(image_files), video_name)
+            results.append(
+                {
+                    "video_name": video_name,
+                    "frame_name": image_file.name,
+                    "image_path": str(image_file),
+                    "timestamp": timestamp,
+                    "timestamp_str": self._format_timestamp(timestamp),
+                    "caption": caption,
+                    "model_name": getattr(self, "model_name", "unknown"),
+                    "device_used": str(getattr(self, "device", "cpu")),
+                    "language": getattr(self, "output_language", "en"),
+                    "pipeline_version": getattr(self, "pipeline_version", "1.0.0"),
+                    "source_modality": "image",
+                }
+            )
 
-        for image_path in image_files:
-            try:
-                raw_caption = self.generate_caption(str(image_path))
-                caption = self._clean_caption(raw_caption)
-                timestamp = self._extract_timestamp_from_filename(image_path.name)
-
-                results.append(
-                    {
-                        "video_name": video_name,
-                        "frame_name": image_path.name,
-                        "image_path": str(image_path),
-                        "caption": caption,
-                        "timestamp": timestamp,
-                        "timestamp_str": self._format_timestamp(timestamp),
-                        "model_name": self.model_name,
-                        "device_used": str(self.device),
-                    }
-                )
-            except Exception as e:
-                failed_count += 1
-                logger.warning("Failed to caption frame %s: %s", image_path.name, e)
-
-        stem = Path(video_name).stem
-        interim_output = self.output_dir / f"{stem}_captions.json"
-        processed_output = self.processed_dir / f"{stem}_captions_processed.json"
+        interim_output = self.output_dir / f"{Path(video_name).stem}_captions.json"
+        processed_output = self.processed_dir / f"{Path(video_name).stem}_captions_processed.json"
 
         self._save_json(results, interim_output)
         self._save_json(results, processed_output)
 
-        logger.info(
-            "Generated %d captions for '%s' (failed: %d)",
-            len(results),
-            video_name,
-            failed_count,
-        )
+        logger.info("Generated %d captions for '%s'", len(results), video_name)
         logger.info("Saved captions to %s and %s", interim_output, processed_output)
 
         return results

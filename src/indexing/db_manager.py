@@ -22,6 +22,10 @@ class DBManager:
         self.persist_directory = Path(get_data_path(vector_db_dir))
         self.persist_directory.mkdir(parents=True, exist_ok=True)
 
+        self.export_batch_size = int(
+            self.config.get("vector_db", {}).get("export_batch_size", 1000)
+        )
+
         self.client = chromadb.PersistentClient(
             path=str(self.persist_directory),
             settings=Settings(anonymized_telemetry=False),
@@ -51,28 +55,44 @@ class DBManager:
     def export_collection(self, collection_name: str, output_file: str) -> None:
         collection = self.get_collection(collection_name)
         if not collection:
-            return
+            raise ValueError(f"Collection not found: {collection_name}")
 
-        results = collection.get(limit=10000)
+        total_count = collection.count()
         output_data = {
             "collection_name": collection_name,
-            "count": len(results.get("ids", [])),
+            "count": total_count,
             "data": [],
         }
 
-        for i in range(len(results.get("ids", []))):
-            output_data["data"].append(
-                {
-                    "id": results["ids"][i],
-                    "document": results["documents"][i],
-                    "metadata": results["metadatas"][i],
-                }
+        offset = 0
+        while offset < total_count:
+            batch = collection.get(
+                limit=self.export_batch_size,
+                offset=offset,
+                include=["documents", "metadatas"],
             )
+
+            ids = batch.get("ids", [])
+            documents = batch.get("documents", [])
+            metadatas = batch.get("metadatas", [])
+
+            for i in range(len(ids)):
+                output_data["data"].append(
+                    {
+                        "id": ids[i],
+                        "document": documents[i] if i < len(documents) else None,
+                        "metadata": metadatas[i] if i < len(metadatas) else None,
+                    }
+                )
+
+            offset += len(ids)
+            if not ids:
+                break
 
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(output_data, f, ensure_ascii=False, indent=2)
 
-        logger.info("Exported %d items to %s", len(results.get("ids", [])), output_file)
+        logger.info("Exported %d items to %s", total_count, output_file)
 
     def get_stats(self) -> Dict[str, Any]:
         collections = self.list_collections()

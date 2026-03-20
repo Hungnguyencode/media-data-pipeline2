@@ -75,7 +75,7 @@ def test_search_returns_results_with_score_type():
     assert results[0]["document"] == "giới thiệu về trí tuệ nhân tạo"
     assert results[0]["metadata"]["video_name"] == "demo.mp4"
     assert results[0]["score_type"] == "similarity_proxy_from_distance"
-    assert results[0]["relevance"] == pytest.approx(0.9)
+    assert results[0]["similarity_score"] == pytest.approx(0.9)
     assert indexer.collection.last_n_results == 2
 
 
@@ -115,3 +115,12 @@ def test_search_with_single_filter_builds_simple_where_clause():
     )
 
     assert indexer.collection.last_where == {"content_type": "caption"}
+
+
+def test_search_top_k_is_capped():
+    indexer = FakeVectorIndexer()
+    engine = SearchEngine(config={"pipeline": {"max_top_k": 10}}, vector_indexer=indexer)
+
+    engine.search(query="demo", top_k=999)
+
+    assert indexer.collection.last_n_results == 10
