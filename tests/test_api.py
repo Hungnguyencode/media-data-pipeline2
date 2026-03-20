@@ -34,6 +34,71 @@ class FakeVectorIndexer:
             "pipeline_version": "1.2.0",
         }
 
+    def list_videos(self):
+        return ["demo.mp4", "lesson_01.mp4"]
+
+    def get_video_inventory(self, video_name):
+        if video_name == "missing.mp4":
+            return {
+                "video_name": video_name,
+                "exists": False,
+                "total_records": 0,
+                "content_type_counts": {
+                    "transcription": 0,
+                    "segment_chunk": 0,
+                    "caption": 0,
+                    "multimodal": 0,
+                },
+                "source_modality_counts": {},
+                "languages": [],
+                "pipeline_versions": [],
+                "time_range": {
+                    "min_timestamp": None,
+                    "max_timestamp": None,
+                    "min_start_time": None,
+                    "max_end_time": None,
+                },
+            }
+
+        return {
+            "video_name": video_name,
+            "exists": True,
+            "total_records": 6,
+            "content_type_counts": {
+                "transcription": 1,
+                "segment_chunk": 2,
+                "caption": 2,
+                "multimodal": 1,
+            },
+            "source_modality_counts": {
+                "audio": 3,
+                "image": 2,
+                "audio+image": 1,
+            },
+            "languages": ["en", "vi", "vi+en"],
+            "pipeline_versions": ["1.2.0"],
+            "time_range": {
+                "min_timestamp": 0.0,
+                "max_timestamp": 12.0,
+                "min_start_time": 0.0,
+                "max_end_time": 15.0,
+            },
+        }
+
+    def get_all_videos_inventory(self):
+        return {
+            "total_videos": 2,
+            "videos": [
+                self.get_video_inventory("demo.mp4"),
+                self.get_video_inventory("lesson_01.mp4"),
+            ],
+        }
+
+    def delete_video_data(self, video_name):
+        if video_name == "missing.mp4":
+            return 0
+        return 6
+
 
 class FakePipeline:
     def __init__(self):
@@ -93,6 +158,53 @@ def test_stats():
     data = response.json()
     assert data["collection_name"] == "video_semantic_search"
     assert data["total_documents"] == 10
+
+
+def test_list_videos():
+    response = client.get("/videos")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_videos"] == 2
+    assert "demo.mp4" in data["videos"]
+
+
+def test_all_videos_inventory():
+    response = client.get("/videos/inventory")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_videos"] == 2
+    assert len(data["videos"]) == 2
+
+
+def test_get_video_inventory_success():
+    response = client.get("/videos/demo.mp4")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["video_name"] == "demo.mp4"
+    assert data["exists"] is True
+    assert data["total_records"] == 6
+
+
+def test_get_video_inventory_not_found():
+    response = client.get("/videos/missing.mp4")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Video not found in index: missing.mp4"
+
+
+def test_delete_video_success():
+    response = client.delete("/videos/demo.mp4")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["video_name"] == "demo.mp4"
+    assert data["deleted_records"] == 6
+
+
+def test_delete_video_missing():
+    response = client.delete("/videos/missing.mp4")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["video_name"] == "missing.mp4"
+    assert data["deleted_records"] == 0
 
 
 def test_search_success():

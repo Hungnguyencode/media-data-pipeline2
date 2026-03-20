@@ -1,130 +1,98 @@
-# Xây dựng data pipeline trích xuất giọng nói và mô tả hình ảnh, lập chỉ mục vector phục vụ tìm kiếm ngữ nghĩa trong kho dữ liệu video
+# Media Semantic Search for Video Data Warehouse
 
-## 1. Giới thiệu đề tài
+## 1. Giới thiệu
 
-Đây là đồ án ngành thuộc chuyên ngành **Kỹ thuật Dữ liệu (Data Engineering)** với mục tiêu xây dựng một hệ thống xử lý dữ liệu video theo hướng đa phương thức. Hệ thống thực hiện trích xuất thông tin từ **âm thanh** và **hình ảnh** trong video, sau đó chuẩn hóa dữ liệu, tạo **vector embedding**, lập chỉ mục trong **vector database**, và hỗ trợ **tìm kiếm ngữ nghĩa** thông qua API và giao diện người dùng.
+Đây là đồ án ngành thuộc chuyên ngành **Kỹ thuật dữ liệu (Data Engineering)** với đề tài:
 
-Đề tài tập trung vào bài toán:
+**Xây dựng data pipeline trích xuất giọng nói và mô tả hình ảnh, lập chỉ mục vector phục vụ tìm kiếm ngữ nghĩa trong kho dữ liệu video.**
 
-- trích xuất lời nói trong video thành văn bản
-- trích xuất mô tả ngữ nghĩa từ các khung hình
-- hợp nhất dữ liệu đa nguồn thành tài liệu có cấu trúc
-- lập chỉ mục vector để phục vụ semantic search trong kho dữ liệu video
-
-Bài toán này phù hợp với định hướng **Kỹ thuật Dữ liệu** vì bao gồm đầy đủ các bước cốt lõi của một pipeline dữ liệu:
-
-- **ingest** dữ liệu video đầu vào
-- **extract** dữ liệu từ audio và image
-- **transform** dữ liệu thành dạng có cấu trúc
-- **manage metadata** phục vụ truy vết và khai thác
-- **index** dữ liệu bằng vector database
-- **retrieve** dữ liệu bằng tìm kiếm ngữ nghĩa
+Hệ thống cho phép:
+- nạp video vào pipeline xử lý,
+- trích xuất âm thanh và khung hình,
+- chuyển giọng nói thành văn bản,
+- sinh mô tả hình ảnh từ frame,
+- xây dựng vector index cho dữ liệu đa phương thức,
+- tìm kiếm ngữ nghĩa trên kho dữ liệu video,
+- và quản lý kho dữ liệu video ở mức cơ bản.
 
 ---
 
-## 2. Mục tiêu của hệ thống
+## 2. Mục tiêu đề tài
 
-Hệ thống được xây dựng nhằm đáp ứng các mục tiêu sau:
+Mục tiêu của hệ thống là xây dựng một **data pipeline đa phương thức** phục vụ semantic search trên dữ liệu video.  
+Pipeline tập trung vào các bước chính:
 
-1. Tự động xử lý video đầu vào và tách thành các nguồn dữ liệu trung gian gồm:
-   - audio
-   - frame ảnh
-   - transcript
-   - caption ảnh
-
-2. Tổ chức dữ liệu theo pipeline rõ ràng, có lưu trữ dữ liệu tạm và dữ liệu đã xử lý.
-
-3. Sinh vector embedding cho nhiều loại tài liệu:
-   - toàn bộ transcript
-   - các đoạn transcript
-   - caption của frame
-   - tài liệu đa phương thức kết hợp lời nói và hình ảnh
-
-4. Lập chỉ mục vector trong ChromaDB để truy hồi dữ liệu theo ngữ nghĩa.
-
-5. Cung cấp giao diện API và UI để:
-   - nạp video
-   - xử lý pipeline
-   - tìm kiếm ngữ nghĩa
-   - xem thống kê dữ liệu đã index
+1. **Ingest video**
+2. **Extract audio và image frames**
+3. **Transform dữ liệu thành transcript / caption / multimodal documents**
+4. **Index vector vào ChromaDB**
+5. **Serve kết quả qua FastAPI và Streamlit**
+6. **Quản lý kho dữ liệu video ở mức cơ bản**
 
 ---
 
-## 3. Phạm vi và đầu vào của hệ thống
+## 3. Chức năng chính
 
-### 3.1. Đầu vào
-Hệ thống nhận đầu vào là các file video số, ví dụ:
+### 3.1. Xử lý video
+- Nhận video đầu vào từ đường dẫn cục bộ hoặc upload qua giao diện
+- Tách audio từ video
+- Trích xuất frame theo khoảng thời gian
 
-- `.mp4`
-- `.avi`
-- `.mov`
-- `.mkv`
-- `.webm`
+### 3.2. Trích xuất thông tin
+- Chuyển giọng nói thành văn bản bằng mô hình speech-to-text
+- Sinh caption mô tả nội dung hình ảnh từ frame
+- Tạo các tài liệu đa phương thức kết hợp thông tin âm thanh và hình ảnh
 
-### 3.2. Đầu ra
-Hệ thống tạo ra các đầu ra chính:
+### 3.3. Lập chỉ mục vector
+- Lưu transcript, segment chunk, caption và multimodal documents vào vector database
+- Dùng embedding model để biểu diễn văn bản dưới dạng vector
+- Hỗ trợ tìm kiếm ngữ nghĩa theo truy vấn ngôn ngữ tự nhiên
 
-- file audio được tách từ video
-- bộ frame ảnh được lấy mẫu từ video
-- transcript tiếng nói từ audio
-- caption mô tả ảnh từ các frame
-- dữ liệu tổng hợp dạng JSON
-- vector index trong ChromaDB
-- kết quả truy hồi semantic search qua API/UI
+### 3.4. Tìm kiếm ngữ nghĩa
+- Tìm kiếm trên toàn bộ kho dữ liệu video
+- Lọc theo loại nội dung:
+  - transcription
+  - segment_chunk
+  - caption
+  - multimodal
+- Lọc theo từng video cụ thể
 
-### 3.3. Giới hạn hiện tại
-Phiên bản hiện tại tập trung vào pipeline xử lý offline cho từng video hoặc từng đợt upload nhỏ. Hệ thống chưa hướng tới xử lý phân tán quy mô lớn hoặc streaming realtime.
+### 3.5. Quản lý kho dữ liệu video
+- Liệt kê danh sách video đã được index
+- Xem thống kê dữ liệu theo từng video
+- Xóa toàn bộ dữ liệu đã index của một video khỏi vector database
 
 ---
 
-## 4. Kiến trúc tổng thể
+## 4. Kiến trúc hệ thống
 
-### 4.1. Luồng xử lý dữ liệu
+Hệ thống được tổ chức thành các thành phần chính:
 
-```text
-Raw Video
-   ↓
-Extract Audio + Extract Frames
-   ↓
-Speech-to-Text (Whisper) + Image Captioning (BLIP)
-   ↓
-Transform / Normalize / Merge Metadata
-   ↓
-Embedding (Sentence Transformers)
-   ↓
-Vector Indexing (ChromaDB)
-   ↓
-Semantic Search (FastAPI + Streamlit)
-```
+- **Extract Layer**
+  - tách audio
+  - trích xuất frame
 
-### 4.2. Các lớp chức năng chính
+- **Transform Layer**
+  - speech-to-text
+  - image captioning
+  - hợp nhất dữ liệu thành tài liệu có cấu trúc
 
-- **Extract layer**
-  - tách audio từ video
-  - lấy mẫu frame từ video
-
-- **Transform layer**
-  - chuyển audio thành transcript bằng Whisper
-  - sinh caption cho frame bằng BLIP
-  - chuẩn hóa dữ liệu và metadata
-
-- **Indexing layer**
-  - tạo embedding cho tài liệu
+- **Index Layer**
+  - sinh embedding
   - lưu vector vào ChromaDB
-  - quản lý collection và thống kê dữ liệu
+  - quản lý inventory video trong kho dữ liệu
 
-- **Retrieval layer**
-  - nhận truy vấn
-  - sinh embedding cho query
-  - tìm kiếm các tài liệu gần nhất trong vector DB
+- **Retrieval Layer**
+  - semantic search trên vector database
+  - lọc theo video và loại nội dung
 
-- **Serving layer**
-  - FastAPI cho backend
-  - Streamlit cho UI demo
+- **Serving Layer**
+  - FastAPI cung cấp REST API
+  - Streamlit cung cấp giao diện demo
 
 ---
 
-## 5. Cấu trúc thư mục dự án
+## 5. Cấu trúc thư mục
 
 ```text
 project/
@@ -171,457 +139,295 @@ project/
 └── README.md
 ```
 
+### Mô tả ngắn các thư mục chính
+- `api/`: REST API phục vụ search, process, inventory và quản lý video trong index
+- `configs/`: cấu hình hệ thống và cấu hình logging
+- `data/raw/`: video gốc đầu vào
+- `data/interim/audio/`: file audio tách từ video
+- `data/interim/frames/`: frame ảnh được trích xuất
+- `data/interim/transcripts/`: dữ liệu transcript trung gian
+- `data/interim/captions/`: dữ liệu caption trung gian
+- `data/processed/`: dữ liệu đã hợp nhất và metadata cuối pipeline
+- `data/vector_db/`: vector database ChromaDB
+- `logs/`: log chạy hệ thống
+- `src/extract/`: các module extract
+- `src/transform/`: các module transform
+- `src/indexing/`: logic index và quản lý dữ liệu vector
+- `src/retrieval/`: logic semantic search
+- `tests/`: bộ kiểm thử tự động
+- `ui/`: giao diện Streamlit demo
+
 ---
 
 ## 6. Công nghệ sử dụng
 
-### 6.1. Xử lý video và ảnh
-- `ffmpeg`
-- `opencv-python`
-- `Pillow`
-
-### 6.2. Speech-to-text
-- `openai-whisper`
-
-### 6.3. Image captioning
-- `transformers`
-- `Salesforce/blip-image-captioning-base`
-
-### 6.4. Embedding
-- `sentence-transformers`
-- `paraphrase-multilingual-MiniLM-L12-v2`
-
-### 6.5. Vector database
-- `chromadb`
-
-### 6.6. API và UI
-- `FastAPI`
-- `Uvicorn`
-- `Streamlit`
-
-### 6.7. Testing và cấu hình
-- `pytest`
-- `PyYAML`
+- **Python**
+- **FastAPI** cho REST API
+- **Streamlit** cho giao diện demo
+- **ChromaDB** cho vector database
+- **SentenceTransformers** cho embedding
+- **Whisper** cho speech-to-text
+- **BLIP / Vision model** cho image captioning
+- **FFmpeg** cho xử lý audio/video
+- **PyTest** cho kiểm thử
 
 ---
 
-## 7. Cài đặt môi trường
+## 7. Luồng xử lý dữ liệu
 
-### 7.1. Tạo môi trường ảo
+### Bước 1: Nhận video
+Video được đưa vào hệ thống qua:
+- upload từ UI
+- gọi API
+- hoặc truyền đường dẫn file cục bộ
 
-```bash
-python -m venv venv
-```
+### Bước 2: Extract
+- tách audio từ video
+- trích xuất các frame tại các mốc thời gian
 
-Kích hoạt môi trường:
+### Bước 3: Transform
+- audio được chuyển thành transcript
+- frame được sinh caption mô tả nội dung hình ảnh
+- transcript và caption có thể được hợp nhất thành multimodal documents
 
-**Windows**
-```powershell
-venv\Scripts\Activate.ps1
-```
+### Bước 4: Index
+- các documents được chuyển thành vector embedding
+- vector và metadata được lưu vào ChromaDB
 
-**Linux / macOS**
-```bash
-source venv/bin/activate
-```
-
-### 7.2. Cài đặt thư viện
-
-```bash
-pip install -r requirements.txt
-```
-
-Lưu ý: project chưa tự cài `torch`, `torchvision`, `torchaudio` trong `requirements.txt`. Người dùng cần cài PyTorch riêng theo môi trường CPU/GPU đang sử dụng.
-
-### 7.3. Cài PyTorch
-Do PyTorch phụ thuộc CPU/GPU và CUDA, nên cài riêng theo môi trường máy.
-
-Ví dụ bản CPU:
-
-```bash
-pip install torch torchvision torchaudio
-```
-
-Nếu dùng GPU CUDA, cài theo hướng dẫn chính thức của PyTorch tương ứng với phiên bản CUDA.
-
-### 7.4. Cài đặt FFmpeg
-Hệ thống cần `ffmpeg` để trích xuất audio và xử lý video.
-
-Kiểm tra:
-
-```bash
-ffmpeg -version
-```
-
-Nếu chưa có, cài `ffmpeg` vào máy và bảo đảm lệnh này chạy được từ terminal.
+### Bước 5: Search / Inventory
+- người dùng truy vấn semantic search
+- hệ thống trả về document phù hợp nhất cùng metadata
+- người dùng có thể xem inventory của kho video hoặc xóa dữ liệu theo từng video
 
 ---
 
-## 8. Cấu hình hệ thống
+## 8. Các loại dữ liệu được index
 
-File cấu hình chính: `configs/config.yaml`
+Hệ thống hiện hỗ trợ 4 loại document:
 
-Ví dụ các nhóm cấu hình chính:
+### 8.1. `transcription`
+Toàn bộ transcript của video.
 
-- đường dẫn lưu dữ liệu
-- cấu hình xử lý video
-- model Whisper
-- model BLIP
-- embedding model
-- pipeline version
-- collection name trong ChromaDB
-- API base URL
+### 8.2. `segment_chunk`
+Các đoạn transcript được chia theo cửa sổ thời gian hoặc nhóm segment.
 
-Một số tham số quan trọng:
+### 8.3. `caption`
+Mô tả hình ảnh sinh ra từ từng frame.
 
-- `frame_sampling_fps`: tần suất lấy mẫu frame
-- `max_frames`: giới hạn số frame tối đa
-- `embedding.name`: model dùng để vector hóa
-- `vector_db.collection_name`: tên collection
-- `pipeline.max_top_k`: số kết quả tối đa khi search
-
-Ví dụ cấu hình API:
-
-```yaml
-api:
-  base_url: "http://127.0.0.1:8000"
-```
+### 8.4. `multimodal`
+Tài liệu kết hợp giữa lời nói và mô tả hình ảnh gần cùng ngữ cảnh thời gian.
 
 ---
 
-## 9. Quy trình xử lý dữ liệu
+## 9. Metadata chính
 
-### 9.1. Bước 1 - Trích xuất audio
-Từ video đầu vào, hệ thống tách phần âm thanh và lưu vào thư mục `data/interim/audio`.
+Mỗi record trong vector database có thể chứa các metadata như:
+- `video_name`
+- `content_type`
+- `source_modality`
+- `model_name`
+- `pipeline_version`
+- `timestamp`
+- `timestamp_str`
+- `start_time`
+- `start_time_str`
+- `end_time`
+- `end_time_str`
+- `frame_name`
+- `image_path`
+- `document_language`
 
-### 9.2. Bước 2 - Trích xuất frame
-Video được lấy mẫu theo FPS cấu hình, sau đó lưu frame ảnh vào `data/interim/frames`.
-
-### 9.3. Bước 3 - Speech-to-text
-File audio được đưa qua mô hình Whisper để tạo:
-
-- `full_text`
-- danh sách `segments`
-- ngôn ngữ
-- metadata xử lý
-
-### 9.4. Bước 4 - Image captioning
-Mỗi frame được xử lý bằng mô hình BLIP để sinh caption mô tả nội dung ảnh.
-
-### 9.5. Bước 5 - Chuẩn hóa và hợp nhất dữ liệu
-Dữ liệu transcript và caption được chuẩn hóa thành các tài liệu có thể index. Ngoài transcript và caption độc lập, hệ thống còn tạo ra **multimodal documents** bằng cách ghép lời nói và mô tả hình ảnh gần cùng thời điểm.
-
-### 9.6. Bước 6 - Sinh embedding
-Các tài liệu văn bản được chuyển thành vector embedding bằng mô hình đa ngôn ngữ.
-
-### 9.7. Bước 7 - Lập chỉ mục vector
-Embedding và metadata được lưu vào ChromaDB để phục vụ truy hồi ngữ nghĩa.
-
-### 9.8. Bước 8 - Semantic search
-Khi người dùng nhập câu truy vấn, hệ thống:
-
-- sinh embedding cho query
-- truy vấn vector DB
-- trả về các tài liệu gần nhất kèm metadata
+Những metadata này giúp:
+- lọc kết quả tìm kiếm,
+- truy vết dữ liệu,
+- thống kê theo từng video,
+- và quản lý inventory trong kho dữ liệu video.
 
 ---
 
-## 10. Schema dữ liệu đầu ra
+## 10. API chính
 
-Các bản ghi trong pipeline và vector index có thể chứa những trường sau:
+### 10.1. `GET /`
+Kiểm tra API đang hoạt động và liệt kê các endpoint chính.
 
-| Trường | Ý nghĩa |
-|---|---|
-| `video_name` | Tên file video nguồn |
-| `video_path` | Đường dẫn video đầu vào |
-| `audio_path` | Đường dẫn file audio đã trích xuất |
-| `frame_name` | Tên file frame |
-| `image_path` | Đường dẫn ảnh frame |
-| `timestamp` | Mốc thời gian theo giây |
-| `timestamp_str` | Mốc thời gian dạng HH:MM:SS |
-| `start_time` | Thời điểm bắt đầu của đoạn dữ liệu |
-| `end_time` | Thời điểm kết thúc của đoạn dữ liệu |
-| `content_type` | Loại dữ liệu: `transcription`, `segment_chunk`, `caption`, `multimodal` |
-| `source_modality` | Nguồn dữ liệu: `audio`, `image`, `audio+image` |
-| `model_name` | Model được dùng để sinh dữ liệu |
-| `document_language` | Ngôn ngữ chính của bản ghi |
-| `pipeline_version` | Phiên bản pipeline |
-| `distance` | Khoảng cách vector trả về từ ChromaDB |
-| `similarity_score` | Giá trị xấp xỉ độ tương đồng, tính từ `1 - distance` |
+### 10.2. `GET /health`
+Kiểm tra tình trạng hệ thống.
 
----
+### 10.3. `GET /stats`
+Lấy thống kê tổng quan của collection vector database.
 
-## 11. Các loại dữ liệu được index
+### 10.4. `GET /videos`
+Lấy danh sách các video đã được index trong kho dữ liệu vector.
 
-### 11.1. Toàn bộ transcript
-Đây là bản transcript tổng hợp toàn bộ nội dung lời nói của video.
+### 10.5. `GET /videos/inventory`
+Lấy thống kê toàn bộ kho dữ liệu video theo từng video.
 
-### 11.2. Segment chunk
-Transcript được chia theo nhóm segment để tăng độ chi tiết khi truy hồi.
+### 10.6. `GET /videos/{video_name}`
+Lấy thống kê chi tiết của một video.
 
-### 11.3. Caption
-Mỗi frame ảnh sẽ có một caption tương ứng và được index riêng.
+### 10.7. `DELETE /videos/{video_name}`
+Xóa toàn bộ dữ liệu đã index của một video khỏi vector database.
 
-### 11.4. Multimodal document
-Dữ liệu lời nói và mô tả hình ảnh được kết hợp trong cùng một tài liệu khi chúng gần nhau theo trục thời gian. Loại tài liệu này giúp cải thiện semantic retrieval cho các truy vấn chứa cả yếu tố nội dung nói và nội dung hình ảnh.
-
----
-
-## 12. Hướng dẫn chạy hệ thống
-
-### 12.1. Chạy pipeline qua CLI
-
-Xử lý một video:
-
-```bash
-python main_pipeline.py --video data/raw/demo.mp4 --reset-index
-```
-
-Tìm kiếm ngữ nghĩa:
-
-```bash
-python main_pipeline.py --query "đoạn nói về trí tuệ nhân tạo" --top-k 5
-```
-
-Tìm kiếm có filter:
-
-```bash
-python main_pipeline.py --query "cảnh có slide trên màn hình" --top-k 5 --content-type multimodal
-```
-
-### 12.2. Chạy API
-
-```bash
-uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-### 12.3. Chạy UI
-
-```bash
-streamlit run ui/app.py
-```
-
-### 12.4. Chạy test
-
-```bash
-pytest -v
-```
-
-### 12.5. Chạy nhanh trên Windows
-
-```powershell
-uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
-streamlit run ui/app.py
-pytest -v
-```
-
----
-
-## 13. API chính
-
-### 13.1. `GET /`
-Kiểm tra API đang chạy.
-
-### 13.2. `GET /health`
-Kiểm tra trạng thái hệ thống.
-
-### 13.3. `GET /stats`
-Lấy thống kê collection hiện tại trong vector DB.
-
-### 13.4. `POST /process-video`
-Xử lý video bằng đường dẫn từ backend.
+### 10.8. `POST /search`
+Thực hiện tìm kiếm ngữ nghĩa.
 
 Ví dụ request:
-
 ```json
 {
-  "video_path": "data/raw/demo.mp4",
-  "reset_index": true
-}
-```
-
-### 13.5. `POST /upload-video`
-Upload video trực tiếp và xử lý pipeline.
-
-### 13.6. `POST /search`
-Tìm kiếm ngữ nghĩa.
-
-Ví dụ request:
-
-```json
-{
-  "query": "đoạn nói về trí tuệ nhân tạo",
+  "query": "giới thiệu về trí tuệ nhân tạo",
   "top_k": 5,
-  "content_type": "multimodal",
+  "content_type": "transcription",
   "video_name": "demo.mp4"
 }
 ```
 
-Ví dụ response rút gọn:
+### 10.9. `POST /process-video`
+Xử lý video theo đường dẫn file trên máy backend.
 
-```json
-{
-  "results": [
-    {
-      "document": "Nội dung lời nói và mô tả hình ảnh...",
-      "metadata": {
-        "video_name": "demo.mp4",
-        "content_type": "multimodal",
-        "source_modality": "audio+image"
-      },
-      "distance": 0.132,
-      "similarity_score": 0.868,
-      "score_type": "similarity_proxy_from_distance"
-    }
-  ]
-}
+### 10.10. `POST /upload-video`
+Upload video rồi chạy toàn bộ pipeline xử lý.
+
+---
+
+## 11. Giao diện người dùng
+
+Ứng dụng Streamlit hiện có 4 tab chính:
+
+### 11.1. Search
+- nhập truy vấn semantic search
+- chọn top_k
+- lọc theo loại nội dung
+- lọc theo video bằng dropdown hoặc nhập tên thủ công
+
+### 11.2. Upload & Process
+- upload file video
+- xử lý pipeline
+- chọn reset index trước khi index lại
+
+### 11.3. Process by Path
+- nhập đường dẫn video trên máy chạy backend
+- xử lý pipeline từ file local
+
+### 11.4. Video Inventory
+- xem danh sách video đã index
+- xem thống kê theo từng video
+- xóa dữ liệu của một video khỏi index
+- xem nhanh inventory của từng video
+
+---
+
+## 12. Kiểm thử
+
+Hệ thống có bộ test cho các thành phần chính:
+
+- `test_api.py`: kiểm thử API
+- `test_extract.py`: kiểm thử extract audio/frame
+- `test_main_pipeline.py`: kiểm thử pipeline tổng
+- `test_retrieval.py`: kiểm thử search
+- `test_transform.py`: kiểm thử transform
+- `test_vector_indexer.py`: kiểm thử vector indexer
+
+Điều này giúp tăng độ tin cậy của hệ thống và hỗ trợ bảo trì code.
+
+---
+
+## 13. Cài đặt môi trường
+
+### 13.1. Cài thư viện Python
+```bash
+pip install -r requirements.txt
+```
+
+### 13.2. Cài FFmpeg
+Đảm bảo máy chạy đã cài **FFmpeg** và lệnh `ffmpeg` có thể dùng từ terminal.
+
+### 13.3. Cài PyTorch phù hợp
+Nếu cần, cài PyTorch theo môi trường CPU hoặc GPU đang dùng trước khi chạy các mô hình.
+
+---
+
+## 14. Cách chạy hệ thống
+
+### 14.1. Chạy API
+```bash
+uvicorn api.main:app --reload
+```
+
+### 14.2. Chạy giao diện Streamlit
+```bash
+streamlit run ui/app.py
+```
+
+### 14.3. Chạy test
+```bash
+pytest -v
 ```
 
 ---
 
-## 14. Giao diện người dùng
+## 15. Luồng demo ngắn
 
-Giao diện Streamlit gồm 3 tab chính:
-
-1. **Search**
-   - nhập câu truy vấn
-   - chọn top-k
-   - lọc theo loại nội dung
-   - lọc theo tên video
-
-2. **Upload & Process**
-   - upload video từ máy người dùng
-   - xử lý và index ngay sau khi upload
-
-3. **Process by Path**
-   - xử lý video theo đường dẫn có sẵn trên máy backend
+Một luồng demo điển hình:
+1. chạy API và Streamlit
+2. upload một video hoặc xử lý video từ đường dẫn
+3. đợi pipeline extract, transform và index hoàn tất
+4. vào tab **Search** để thử semantic search
+5. vào tab **Video Inventory** để xem video đã index, thống kê theo video và thử xóa dữ liệu một video
 
 ---
 
-## 15. Logging và metadata
+## 16. Điểm mạnh của hệ thống
 
-Hệ thống lưu log trong thư mục `logs/` và lưu metadata chạy trong `data/processed`.
-
-Một số metadata quan trọng:
-
-- checksum MD5 của video
-- kích thước video
-- trạng thái từng stage
-- thời gian chạy từng stage
-- số lượng transcript segment
-- số lượng caption
-- số lượng document được index
-
-Các thông tin này hữu ích cho:
-- theo dõi pipeline
-- đánh giá hiệu năng
-- truy vết lỗi
-- báo cáo đồ án
+- Có pipeline dữ liệu rõ ràng từ ingest đến serving
+- Kết hợp cả dữ liệu âm thanh và hình ảnh
+- Có vector indexing phục vụ semantic search
+- Có API và UI để demo
+- Có metadata phục vụ truy vết và thống kê
+- Có test cho các thành phần chính
+- Có khả năng quản lý kho dữ liệu video ở mức cơ bản
 
 ---
 
-## 16. Đánh giá hệ thống
+## 17. Giới hạn hiện tại
 
-Để phần báo cáo hoàn chỉnh hơn, nên đánh giá trên các tiêu chí sau:
+Phiên bản hiện tại tập trung vào:
+- xử lý offline theo từng video hoặc từng đợt upload nhỏ,
+- semantic search ở quy mô demo hoặc đồ án,
+- quản lý kho video ở mức cơ bản.
 
-### 16.1. Đánh giá hiệu năng
-- thời gian xử lý video 1 phút, 5 phút, 10 phút
-- thời gian của từng stage:
-  - extract audio
-  - extract frames
-  - transcribe
-  - caption
-  - index
-- số lượng frame được xử lý
-- số lượng document sinh ra
-
-### 16.2. Đánh giá chất lượng truy hồi
-Nên chuẩn bị bộ truy vấn mẫu và đánh giá top-k theo mức độ phù hợp.
-
-Ví dụ truy vấn tiếng Việt:
-- đoạn nói về trí tuệ nhân tạo
-- phần trình bày giới thiệu bài giảng
-- cảnh có người đang đứng thuyết trình
-- video có slide trên màn hình
-- nội dung nói về dữ liệu lớn
-
-Ví dụ truy vấn tiếng Anh:
-- a person presenting in front of a screen
-- introduction to artificial intelligence
-- a lecture slide on the screen
-- classroom presentation scene
-
-Các chỉ số có thể dùng:
-- top-1 đúng / sai
-- top-3 có kết quả phù hợp hay không
-- mức độ phù hợp định tính theo từng truy vấn
+Hệ thống chưa hướng tới production-scale ở thời điểm hiện tại, ví dụ:
+- chưa có orchestration như Airflow hoặc Prefect
+- chưa có scheduling định kỳ
+- chưa tối ưu batch ingest quy mô lớn
+- chưa có monitoring production đầy đủ
+- chưa có dashboard quản trị chuyên sâu
 
 ---
 
-## 17. Ưu điểm của hệ thống
+## 18. Hướng phát triển
 
-- Có pipeline xử lý dữ liệu rõ ràng, tách lớp hợp lý
-- Kết hợp dữ liệu từ cả âm thanh và hình ảnh
-- Có metadata phục vụ truy vết và đánh giá
-- Hỗ trợ vector indexing và semantic retrieval
-- Có cả backend API và giao diện demo
-- Có thể mở rộng để xử lý nhiều video trong kho dữ liệu
-
----
-
-## 18. Hạn chế hiện tại
-
-### 18.1. Không đồng nhất ngôn ngữ hoàn toàn
-- Whisper được cấu hình nhận dạng tiếng Việt
-- BLIP chủ yếu sinh caption bằng tiếng Anh
-
-Do đó, dữ liệu trong hệ thống có thể mang tính song ngữ. Dù embedding model hiện tại là đa ngôn ngữ, chất lượng truy hồi vẫn có thể giảm trong một số trường hợp.
-
-### 18.2. Similarity score chỉ là giá trị xấp xỉ
-`similarity_score` hiện được tính từ công thức `1 - distance`, nên chỉ mang tính chất **proxy** để hiển thị. Đây không phải xác suất hay độ tin cậy tuyệt đối.
-
-### 18.3. Chưa tối ưu cho dữ liệu lớn
-Hệ thống hiện phù hợp với quy mô đồ án và demo. Chưa triển khai:
-- orchestration với Airflow/Prefect
-- xử lý song song số lượng lớn video
-- batch scheduling ở quy mô production
-- monitoring chuyên sâu
-
-### 18.4. Caption ảnh còn phụ thuộc model nền
-Caption sinh bởi BLIP có thể chưa phản ánh đầy đủ ngữ cảnh chuyên ngành hoặc nội dung đặc thù.
+Trong tương lai, hệ thống có thể mở rộng theo các hướng:
+- xử lý batch nhiều video tự động
+- thêm lịch chạy pipeline định kỳ
+- bổ sung dashboard theo dõi pipeline
+- đánh giá retrieval bằng top-k metrics
+- hỗ trợ chỉnh sửa hoặc đồng bộ lại dữ liệu đã index
+- mở rộng thành hệ thống quản lý kho dữ liệu video ở quy mô lớn hơn
 
 ---
 
-## 19. Hướng phát triển
+## 19. Kết luận
 
-Trong tương lai, hệ thống có thể mở rộng theo các hướng sau:
+Đồ án đã xây dựng được một data pipeline đa phương thức cho dữ liệu video, bao gồm:
+- trích xuất giọng nói,
+- mô tả hình ảnh,
+- lập chỉ mục vector,
+- tìm kiếm ngữ nghĩa,
+- và quản lý kho dữ liệu video ở mức cơ bản.
 
-- bổ sung orchestrator như Airflow hoặc Prefect
-- hỗ trợ pipeline theo batch hoặc theo lịch
-- cải thiện đánh giá chất lượng retrieval bằng bộ ground truth
-- dùng mô hình caption tốt hơn hoặc hỗ trợ caption tiếng Việt
-- bổ sung filter theo thời gian, theo video, theo loại dữ liệu
-- hỗ trợ xóa/chỉnh sửa dữ liệu đã index
-- xây dựng dashboard theo dõi pipeline và thống kê retrieval
-
----
-
-## 20. Kết luận
-
-Đề tài đã xây dựng được một pipeline dữ liệu video đa phương thức theo hướng **Kỹ thuật Dữ liệu**, trong đó hệ thống có khả năng:
-
-- trích xuất dữ liệu âm thanh và hình ảnh từ video
-- chuyển đổi dữ liệu thô thành dữ liệu có cấu trúc
-- tổ chức metadata phục vụ truy vết
-- sinh vector embedding và lưu trữ trong vector database
-- hỗ trợ semantic search trên kho dữ liệu video
-
-Kết quả đạt được cho thấy hệ thống có tính ứng dụng tốt trong các bài toán khai thác nội dung video theo ngữ nghĩa, đồng thời tạo nền tảng để mở rộng sang các hướng xử lý dữ liệu video quy mô lớn hơn trong tương lai.
-
----
-
-## 21. Tác giả và thông tin đề tài
-
-- **Môn học**: Đồ án ngành
-- **Ngành**: Kỹ thuật dữ liệu (Data Engineering)
-- **Tên đề tài**: Xây dựng data pipeline trích xuất giọng nói và mô tả hình ảnh, lập chỉ mục vector phục vụ tìm kiếm ngữ nghĩa trong kho dữ liệu video
+Hệ thống phù hợp với định hướng của chuyên ngành Kỹ thuật dữ liệu, vì tập trung vào:
+- tổ chức pipeline xử lý dữ liệu,
+- chuẩn hóa metadata,
+- xây dựng tầng indexing,
+- phục vụ khai thác dữ liệu qua semantic search,
+- và bổ sung quản lý inventory dữ liệu theo từng video.

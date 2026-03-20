@@ -139,6 +139,138 @@ class VectorIndexer:
             logger.warning("Could not delete old data for '%s': %s", video_name, e)
             return 0
 
+    def _safe_collection_get(self, **kwargs) -> Dict[str, Any]:
+        data = self.collection.get(**kwargs)
+        return data or {}
+
+    def list_videos(self) -> List[str]:
+        try:
+            data = self._safe_collection_get(include=["metadatas"])
+            metadatas = data.get("metadatas", []) or []
+            names = set()
+
+            for meta in metadatas:
+                if isinstance(meta, dict):
+                    video_name = (meta.get("video_name") or "").strip()
+                    if video_name:
+                        names.add(video_name)
+
+            return sorted(names)
+        except Exception as e:
+            logger.error("Failed to list videos: %s", e)
+            return []
+
+    def get_video_inventory(self, video_name: str) -> Dict[str, Any]:
+        video_name = (video_name or "").strip()
+        if not video_name:
+            raise ValueError("video_name must not be empty")
+
+        try:
+            data = self._safe_collection_get(
+                where={"video_name": video_name},
+                include=["metadatas"],
+            )
+            metadatas = data.get("metadatas", []) or []
+            ids = data.get("ids", []) or []
+
+            content_type_counts = {
+                "transcription": 0,
+                "segment_chunk": 0,
+                "caption": 0,
+                "multimodal": 0,
+            }
+            source_modality_counts: Dict[str, int] = {}
+            languages = set()
+            pipeline_versions = set()
+
+            min_timestamp = None
+            max_timestamp = None
+            min_start_time = None
+            max_end_time = None
+
+            for meta in metadatas:
+                if not isinstance(meta, dict):
+                    continue
+
+                content_type = meta.get("content_type")
+                if content_type in content_type_counts:
+                    content_type_counts[content_type] += 1
+
+                source_modality = (meta.get("source_modality") or "").strip()
+                if source_modality:
+                    source_modality_counts[source_modality] = (
+                        source_modality_counts.get(source_modality, 0) + 1
+                    )
+
+                language = (meta.get("document_language") or "").strip()
+                if language:
+                    languages.add(language)
+
+                pipeline_version = (meta.get("pipeline_version") or "").strip()
+                if pipeline_version:
+                    pipeline_versions.add(pipeline_version)
+
+                timestamp = meta.get("timestamp")
+                if timestamp is not None:
+                    try:
+                        timestamp = float(timestamp)
+                        min_timestamp = timestamp if min_timestamp is None else min(min_timestamp, timestamp)
+                        max_timestamp = timestamp if max_timestamp is None else max(max_timestamp, timestamp)
+                    except Exception:
+                        pass
+
+                start_time = meta.get("start_time")
+                if start_time is not None:
+                    try:
+                        start_time = float(start_time)
+                        min_start_time = (
+                            start_time if min_start_time is None else min(min_start_time, start_time)
+                        )
+                    except Exception:
+                        pass
+
+                end_time = meta.get("end_time")
+                if end_time is not None:
+                    try:
+                        end_time = float(end_time)
+                        max_end_time = (
+                            end_time if max_end_time is None else max(max_end_time, end_time)
+                        )
+                    except Exception:
+                        pass
+
+            return {
+                "video_name": video_name,
+                "exists": len(ids) > 0,
+                "total_records": len(ids),
+                "content_type_counts": content_type_counts,
+                "source_modality_counts": source_modality_counts,
+                "languages": sorted(languages),
+                "pipeline_versions": sorted(pipeline_versions),
+                "time_range": {
+                    "min_timestamp": min_timestamp,
+                    "max_timestamp": max_timestamp,
+                    "min_start_time": min_start_time,
+                    "max_end_time": max_end_time,
+                },
+            }
+        except Exception as e:
+            logger.error("Failed to get inventory for video '%s': %s", video_name, e)
+            raise
+
+    def get_all_videos_inventory(self) -> Dict[str, Any]:
+        try:
+            videos = self.list_videos()
+            items = [self.get_video_inventory(video_name) for video_name in videos]
+
+            return {
+                "total_videos": len(videos),
+                "videos": items,
+            }
+        except Exception as e:
+            logger.error("Failed to get all video inventory: %s", e)
+            raise
+
     def _build_segment_chunks(self, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         cleaned = []
         for seg in segments:

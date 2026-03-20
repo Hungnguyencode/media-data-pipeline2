@@ -27,6 +27,34 @@ def load_api_base() -> str:
     return "http://127.0.0.1:8000"
 
 
+def fetch_videos():
+    try:
+        response = requests.get(f"{API_BASE}/videos", timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("videos", [])
+    except Exception:
+        return []
+
+
+def fetch_all_inventory():
+    try:
+        response = requests.get(f"{API_BASE}/videos/inventory", timeout=60)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        return {"error": str(e), "total_videos": 0, "videos": []}
+
+
+def fetch_video_inventory(video_name: str):
+    try:
+        response = requests.get(f"{API_BASE}/videos/{video_name}", timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+
 API_BASE = load_api_base()
 
 st.set_page_config(page_title="Media Semantic Search", layout="wide")
@@ -36,8 +64,15 @@ with st.sidebar:
     st.markdown("### Backend")
     st.code(API_BASE)
     st.caption("Lưu ý: Score hiển thị là similarity proxy = 1 - distance, không phải xác suất.")
+    if st.button("Làm mới danh sách video"):
+        st.rerun()
 
-tab1, tab2, tab3 = st.tabs(["Search", "Upload & Process", "Process by Path"])
+videos = fetch_videos()
+video_options = ["Tất cả video"] + videos
+
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["Search", "Upload & Process", "Process by Path", "Video Inventory"]
+)
 
 with tab1:
     st.subheader("Semantic Search")
@@ -68,19 +103,34 @@ with tab1:
         content_type = content_type_map[content_type_label]
 
     with col_b:
-        video_name = st.text_input("Lọc theo tên video (tùy chọn)")
+        selected_video = st.selectbox(
+            "Lọc theo video",
+            options=video_options,
+            index=0,
+        )
+        custom_video_name = st.text_input(
+            "Hoặc nhập tên video thủ công (tùy chọn)",
+            value="",
+        )
 
     if st.button("Search"):
         if not query.strip():
             st.warning("Vui lòng nhập truy vấn.")
         else:
             try:
+                chosen_video = None
+                if custom_video_name.strip():
+                    chosen_video = custom_video_name.strip()
+                elif selected_video != "Tất cả video":
+                    chosen_video = selected_video
+
                 payload = {
                     "query": query.strip(),
                     "top_k": top_k,
                     "content_type": content_type,
-                    "video_name": video_name.strip() or None,
+                    "video_name": chosen_video,
                 }
+
                 response = requests.post(
                     f"{API_BASE}/search",
                     json=payload,
@@ -200,3 +250,67 @@ with tab3:
                 st.json(result)
             except Exception as e:
                 st.error(f"Lỗi khi xử lý video: {e}")
+
+with tab4:
+    st.subheader("Video Inventory")
+
+    inventory = fetch_all_inventory()
+    if inventory.get("error"):
+        st.error(f"Không lấy được inventory: {inventory['error']}")
+    else:
+        st.write("Tổng số video đã index:", inventory.get("total_videos", 0))
+
+        videos_inventory = inventory.get("videos", [])
+        if not videos_inventory:
+            st.info("Hiện chưa có video nào trong kho dữ liệu vector.")
+        else:
+            for item in videos_inventory:
+                with st.expander(f"{item.get('video_name')} | {item.get('total_records', 0)} records"):
+                    st.json(item)
+
+    st.divider()
+    st.markdown("### Xóa dữ liệu của một video khỏi index")
+
+    delete_video_name = st.selectbox(
+        "Chọn video cần xóa",
+        options=videos if videos else ["Không có video"],
+        index=0,
+        key="delete_video_select",
+    )
+
+    if st.button("Xóa video khỏi index"):
+        if not videos:
+            st.warning("Không có video nào để xóa.")
+        else:
+            try:
+                response = requests.delete(
+                    f"{API_BASE}/videos/{delete_video_name}",
+                    timeout=60,
+                )
+                response.raise_for_status()
+                result = response.json()
+                st.success(result.get("message", "Đã xóa dữ liệu video"))
+                st.json(result)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Lỗi khi xóa dữ liệu video: {e}")
+
+    st.divider()
+    st.markdown("### Xem nhanh chi tiết 1 video")
+
+    inspect_video_name = st.selectbox(
+        "Chọn video để xem chi tiết",
+        options=videos if videos else ["Không có video"],
+        index=0,
+        key="inspect_video_select",
+    )
+
+    if st.button("Xem chi tiết video"):
+        if not videos:
+            st.warning("Không có video nào để xem.")
+        else:
+            detail = fetch_video_inventory(inspect_video_name)
+            if detail.get("error"):
+                st.error(f"Lỗi: {detail['error']}")
+            else:
+                st.json(detail)

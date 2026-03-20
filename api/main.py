@@ -51,7 +51,16 @@ class ProcessVideoRequest(BaseModel):
 def root():
     return {
         "message": "Media Semantic Search API is running",
-        "endpoints": ["/search", "/process-video", "/upload-video", "/stats", "/health"],
+        "endpoints": [
+            "/search",
+            "/process-video",
+            "/upload-video",
+            "/stats",
+            "/videos",
+            "/videos/inventory",
+            "/videos/{video_name}",
+            "/health",
+        ],
     }
 
 
@@ -67,6 +76,68 @@ def stats():
         return pipeline.vector_indexer.get_stats()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not get stats: {e}") from e
+
+
+@app.get("/videos")
+def list_videos():
+    try:
+        pipeline = get_pipeline()
+        videos = pipeline.vector_indexer.list_videos()
+        return {
+            "total_videos": len(videos),
+            "videos": videos,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not list videos: {e}") from e
+
+
+@app.get("/videos/inventory")
+def all_videos_inventory():
+    try:
+        pipeline = get_pipeline()
+        return pipeline.vector_indexer.get_all_videos_inventory()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not get video inventory: {e}") from e
+
+
+@app.get("/videos/{video_name}")
+def get_video_inventory(video_name: str):
+    safe_video_name = video_name.strip()
+    if not safe_video_name:
+        raise HTTPException(status_code=400, detail="video_name must not be empty")
+
+    try:
+        pipeline = get_pipeline()
+        inventory = pipeline.vector_indexer.get_video_inventory(safe_video_name)
+        if not inventory.get("exists"):
+            raise HTTPException(status_code=404, detail=f"Video not found in index: {safe_video_name}")
+        return inventory
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not get video inventory: {e}") from e
+
+
+@app.delete("/videos/{video_name}")
+def delete_video(video_name: str):
+    safe_video_name = video_name.strip()
+    if not safe_video_name:
+        raise HTTPException(status_code=400, detail="video_name must not be empty")
+
+    try:
+        pipeline = get_pipeline()
+        deleted_count = pipeline.vector_indexer.delete_video_data(safe_video_name)
+        return {
+            "video_name": safe_video_name,
+            "deleted_records": deleted_count,
+            "message": (
+                f"Deleted {deleted_count} indexed records for '{safe_video_name}'"
+                if deleted_count > 0
+                else f"No indexed records found for '{safe_video_name}'"
+            ),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not delete video data: {e}") from e
 
 
 @app.post("/search")
