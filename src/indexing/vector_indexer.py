@@ -108,8 +108,11 @@ class VectorIndexer:
             "video_name": video_name,
             "content_type": content_type,
             "source_modality": source_modality,
-            "model_name": model_name,
             "pipeline_version": pipeline_version,
+        }
+
+        optional_fields = {
+            "model_name": model_name,
             "timestamp": timestamp,
             "timestamp_str": format_timestamp(timestamp),
             "start_time": start_time,
@@ -121,8 +124,14 @@ class VectorIndexer:
             "document_language": document_language,
         }
 
+        for key, value in optional_fields.items():
+            if value is not None:
+                metadata[key] = value
+
         if extra:
-            metadata.update(extra)
+            for key, value in extra.items():
+                if value is not None:
+                    metadata[key] = value
 
         return metadata
 

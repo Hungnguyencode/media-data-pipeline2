@@ -1,14 +1,33 @@
 # Demo Queries
 
+## Video demo hiện tại
+- `ted_happier.mp4`
+- Chủ đề chính: happiness, connection, love, relationships
+
 ## Truy vấn tiếng Việt
-- đoạn nói về trí tuệ nhân tạo
-- phần trình bày giới thiệu bài giảng
-- cảnh có người đang đứng thuyết trình
-- video có slide trên màn hình
-- nội dung nói về dữ liệu lớn
+- hạnh phúc đến từ đâu
+- điều gì khiến con người hạnh phúc hơn
+- kết nối con người
+- mối quan hệ với người khác
+- cảm giác được kết nối và yêu thương
 
 ## Truy vấn tiếng Anh
-- a person presenting in front of a screen
-- introduction to artificial intelligence
-- a lecture slide on the screen
-- classroom presentation scene
+- human connection
+- feeling connected and loved
+- what makes people happier
+- relationships
+- happiness
+
+## Gợi ý theo loại nội dung
+- Query chủ đề / ý nghĩa:
+  - segment_chunk
+  - multimodal
+
+- Query cảnh vật / hình ảnh:
+  - caption
+  - multimodal
+
+## Gợi ý demo đẹp
+- human connection
+- feeling connected and loved
+- what makes people happier

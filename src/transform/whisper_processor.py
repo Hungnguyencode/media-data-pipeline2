@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import torch
 import whisper
 
 from src.utils import get_config, get_data_path, normalize_device, release_memory
@@ -20,7 +19,7 @@ class WhisperProcessor:
 
         whisper_cfg = self.config.get("models", {}).get("whisper", {})
         self.model_name = whisper_cfg.get("name", "base")
-        self.language = whisper_cfg.get("language", "vi")
+        self.language = whisper_cfg.get("language", "auto")
         self.use_fp16 = bool(whisper_cfg.get("use_fp16", True))
         self.fallback_to_cpu_on_oom = bool(whisper_cfg.get("fallback_to_cpu_on_oom", True))
         self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "1.0.0"))
@@ -58,13 +57,18 @@ class WhisperProcessor:
         if self.model is None:
             self._load_model()
 
-        return self.model.transcribe(
-            str(audio_path),
-            language=self.language,
-            task="transcribe",
-            fp16=(self.use_fp16 and self.device.type == "cuda"),
-            verbose=False,
-        )
+        transcribe_kwargs = {
+            "audio": str(audio_path),
+            "task": "transcribe",
+            "fp16": (self.use_fp16 and self.device.type == "cuda"),
+            "verbose": False,
+        }
+
+        language = (self.language or "").strip().lower()
+        if language and language != "auto":
+            transcribe_kwargs["language"] = language
+
+        return self.model.transcribe(**transcribe_kwargs)
 
     def transcribe(self, audio_path: str, video_name: Optional[str] = None) -> Dict[str, Any]:
         audio_file = Path(audio_path)
@@ -90,6 +94,9 @@ class WhisperProcessor:
             logger.error("Whisper transcription failed for %s: %s", audio_file.name, e)
             raise RuntimeError(f"Failed to transcribe audio {audio_path}: {e}") from e
 
+        detected_language = raw_result.get("language")
+        fallback_language = self.language if (self.language and self.language != "auto") else "auto"
+
         segments: List[Dict[str, Any]] = []
         for seg in raw_result.get("segments", []):
             text = self._clean_text(seg.get("text", ""))
@@ -107,7 +114,7 @@ class WhisperProcessor:
         result = {
             "video_name": video_name,
             "audio_path": str(audio_file),
-            "language": raw_result.get("language", getattr(self, "language", "vi")),
+            "language": detected_language or fallback_language,
             "full_text": self._clean_text(raw_result.get("text", "")),
             "segments": segments,
             "model_name": getattr(self, "model_name", "unknown"),

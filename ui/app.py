@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
+from typing import Optional
 
 import requests
 import streamlit as st
@@ -27,11 +29,57 @@ def load_api_base() -> str:
     return "http://127.0.0.1:8000"
 
 
+def get_project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def get_video_file_path(video_name: Optional[str]) -> Optional[Path]:
+    if not video_name:
+        return None
+
+    config_path = get_project_root() / "configs" / "config.yaml"
+    raw_dir = get_project_root() / "data" / "raw"
+
+    if config_path.exists():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+            raw_dir = get_project_root() / config.get("paths", {}).get("raw_dir", "data/raw")
+        except Exception:
+            pass
+
+    candidate = raw_dir / video_name
+    if candidate.exists() and candidate.is_file():
+        return candidate
+    return None
+
+
+def fetch_json_with_retry(
+    method: str,
+    url: str,
+    retries: int = 3,
+    delay: float = 1.0,
+    **kwargs,
+):
+    last_error = None
+    for _ in range(retries):
+        try:
+            response = requests.request(method, url, **kwargs)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            last_error = e
+            time.sleep(delay)
+    raise last_error
+
+
 def fetch_videos():
     try:
-        response = requests.get(f"{API_BASE}/videos", timeout=30)
-        response.raise_for_status()
-        data = response.json()
+        data = fetch_json_with_retry(
+            "GET",
+            f"{API_BASE}/videos",
+            timeout=30,
+        )
         return data.get("videos", [])
     except Exception:
         return []
@@ -39,23 +87,73 @@ def fetch_videos():
 
 def fetch_all_inventory():
     try:
-        response = requests.get(f"{API_BASE}/videos/inventory", timeout=60)
-        response.raise_for_status()
-        return response.json()
+        return fetch_json_with_retry(
+            "GET",
+            f"{API_BASE}/videos/inventory",
+            timeout=60,
+        )
     except Exception as e:
         return {"error": str(e), "total_videos": 0, "videos": []}
 
 
 def fetch_video_inventory(video_name: str):
     try:
-        response = requests.get(f"{API_BASE}/videos/{video_name}", timeout=30)
-        response.raise_for_status()
-        return response.json()
+        return fetch_json_with_retry(
+            "GET",
+            f"{API_BASE}/videos/{video_name}",
+            timeout=30,
+        )
     except Exception as e:
         return {"error": str(e)}
 
 
+def set_query_sample(sample_text: str):
+    st.session_state["query_input"] = sample_text
+
+
+def show_video_preview(video_name: Optional[str], title: str = "Video preview"):
+    video_path = get_video_file_path(video_name)
+    if not video_path:
+        st.info("Chưa tìm thấy file video để preview.")
+        return
+
+    st.markdown(f"### {title}")
+    st.caption(f"File: {video_path.name}")
+    try:
+        with open(video_path, "rb") as f:
+            st.video(f.read())
+    except Exception as e:
+        st.warning(f"Không thể hiển thị video preview: {e}")
+
+
+def shorten_text(text: str, max_chars: int = 260) -> str:
+    text = (text or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "..."
+
+
 API_BASE = load_api_base()
+
+SAMPLE_QUERIES = [
+    "human connection",
+    "feeling connected and loved",
+    "what makes people happier",
+    "relationships",
+    "happiness",
+    "hạnh phúc đến từ đâu",
+    "kết nối con người",
+    "mối quan hệ với người khác",
+]
+
+if "last_processed_result" not in st.session_state:
+    st.session_state["last_processed_result"] = None
+
+if "last_processed_video_name" not in st.session_state:
+    st.session_state["last_processed_video_name"] = None
+
+if "query_input" not in st.session_state:
+    st.session_state["query_input"] = ""
 
 st.set_page_config(page_title="Media Semantic Search", layout="wide")
 st.title("Media Semantic Search")
@@ -64,8 +162,16 @@ with st.sidebar:
     st.markdown("### Backend")
     st.code(API_BASE)
     st.caption("Lưu ý: Score hiển thị là similarity proxy = 1 - distance, không phải xác suất.")
+
     if st.button("Làm mới danh sách video"):
         st.rerun()
+
+    st.divider()
+    st.markdown("### Query mẫu")
+    for sample in SAMPLE_QUERIES:
+        if st.button(sample, key=f"sample_{sample}"):
+            set_query_sample(sample)
+            st.rerun()
 
 videos = fetch_videos()
 video_options = ["Tất cả video"] + videos
@@ -76,7 +182,19 @@ tab1, tab2, tab3, tab4 = st.tabs(
 
 with tab1:
     st.subheader("Semantic Search")
-    query = st.text_input("Nhập câu truy vấn")
+
+    st.info(
+        "Gợi ý sử dụng: truy vấn chủ đề/ý nghĩa nên ưu tiên 'Đoạn transcript' hoặc 'Tài liệu đa phương thức'. "
+        "Truy vấn thiên về khung cảnh/vật thể nên ưu tiên 'Caption ảnh' hoặc 'Tài liệu đa phương thức'."
+    )
+
+    if st.session_state.get("last_processed_video_name"):
+        show_video_preview(
+            st.session_state.get("last_processed_video_name"),
+            title="Video vừa xử lý gần nhất",
+        )
+
+    query = st.text_input("Nhập câu truy vấn", key="query_input")
     top_k = st.slider("Top K", min_value=1, max_value=20, value=5)
 
     col_a, col_b = st.columns(2)
@@ -113,6 +231,15 @@ with tab1:
             value="",
         )
 
+    chosen_video_for_preview = None
+    if custom_video_name.strip():
+        chosen_video_for_preview = custom_video_name.strip()
+    elif selected_video != "Tất cả video":
+        chosen_video_for_preview = selected_video
+
+    if chosen_video_for_preview:
+        show_video_preview(chosen_video_for_preview, title="Video đang được chọn để tìm kiếm")
+
     if st.button("Search"):
         if not query.strip():
             st.warning("Vui lòng nhập truy vấn.")
@@ -143,10 +270,18 @@ with tab1:
                 if not results:
                     st.info("Không tìm thấy kết quả.")
                 else:
+                    st.success(f"Tìm thấy {len(results)} kết quả.")
+
                     for i, result in enumerate(results, start=1):
                         meta = result.get("metadata", {})
-                        st.markdown(f"### Kết quả {i}")
-                        st.write(result.get("document", ""))
+                        st.markdown(f"### Đoạn video phù hợp {i}")
+
+                        doc_text = result.get("document", "") or ""
+                        st.write(shorten_text(doc_text, max_chars=280))
+
+                        timestamp_str = meta.get("timestamp_str") or meta.get("timestamp")
+                        start_time_str = meta.get("start_time_str") or meta.get("start_time")
+                        end_time_str = meta.get("end_time_str") or meta.get("end_time")
 
                         col1, col2, col3 = st.columns(3)
                         with col1:
@@ -166,13 +301,13 @@ with tab1:
                         if result.get("score_type"):
                             st.caption(f"Score type: {result['score_type']}")
 
-                        if meta.get("timestamp") is not None:
-                            st.write("Timestamp:", meta.get("timestamp_str") or meta.get("timestamp"))
+                        if timestamp_str is not None:
+                            st.markdown(f"**Mốc video:** `{timestamp_str}`")
 
-                        if meta.get("start_time_str") and meta.get("end_time_str"):
-                            st.write(
-                                "Khoảng thời gian:",
-                                f"{meta.get('start_time_str')} -> {meta.get('end_time_str')}",
+                        if start_time_str is not None and end_time_str is not None:
+                            st.markdown(f"**Khoảng thời gian:** `{start_time_str} -> {end_time_str}`")
+                            st.caption(
+                                "Đối chiếu video: tua video đến đúng khoảng thời gian này để xem nội dung tương ứng."
                             )
 
                         if meta.get("frame_name"):
@@ -187,6 +322,9 @@ with tab1:
                         if meta.get("document_language"):
                             st.write("Language:", meta.get("document_language"))
 
+                        with st.expander("Xem toàn bộ nội dung kết quả"):
+                            st.write(doc_text)
+
                         st.divider()
 
             except Exception as e:
@@ -194,6 +332,13 @@ with tab1:
 
 with tab2:
     st.subheader("Upload video and process")
+
+    if st.session_state.get("last_processed_video_name"):
+        show_video_preview(
+            st.session_state.get("last_processed_video_name"),
+            title="Video gần nhất trong phiên làm việc",
+        )
+
     uploaded_file = st.file_uploader(
         "Chọn file video",
         type=["mp4", "avi", "mov", "mkv", "webm"],
@@ -220,13 +365,31 @@ with tab2:
                 )
                 response.raise_for_status()
                 result = response.json()
+
+                uploaded_path = result.get("uploaded_path")
+                process_result = result.get("result", {})
+                video_name = process_result.get("video_name") or (Path(uploaded_path).name if uploaded_path else None)
+
+                st.session_state["last_processed_result"] = result
+                st.session_state["last_processed_video_name"] = video_name
+
                 st.success("Upload và xử lý video thành công")
                 st.json(result)
+
+                if video_name:
+                    show_video_preview(video_name, title="Video vừa upload và xử lý")
             except Exception as e:
                 st.error(f"Lỗi khi upload/process video: {e}")
 
 with tab3:
     st.subheader("Process video by backend path")
+
+    if st.session_state.get("last_processed_video_name"):
+        show_video_preview(
+            st.session_state.get("last_processed_video_name"),
+            title="Video gần nhất trong phiên làm việc",
+        )
+
     video_path = st.text_input("Đường dẫn video trên máy chạy backend")
     reset_index = st.checkbox(
         "Xóa dữ liệu cũ của video này trước khi index lại",
@@ -246,17 +409,31 @@ with tab3:
                 )
                 response.raise_for_status()
                 result = response.json()
+
+                st.session_state["last_processed_result"] = result
+                st.session_state["last_processed_video_name"] = result.get("video_name")
+
                 st.success("Xử lý video thành công")
                 st.json(result)
+
+                if result.get("video_name"):
+                    show_video_preview(result.get("video_name"), title="Video vừa xử lý")
             except Exception as e:
                 st.error(f"Lỗi khi xử lý video: {e}")
 
 with tab4:
     st.subheader("Video Inventory")
 
+    if st.session_state.get("last_processed_video_name"):
+        show_video_preview(
+            st.session_state.get("last_processed_video_name"),
+            title="Video gần nhất trong phiên làm việc",
+        )
+
     inventory = fetch_all_inventory()
     if inventory.get("error"):
-        st.error(f"Không lấy được inventory: {inventory['error']}")
+        st.warning("Backend chưa sẵn sàng. Vui lòng đợi vài giây rồi tải lại trang.")
+        st.caption(str(inventory["error"]))
     else:
         st.write("Tổng số video đã index:", inventory.get("total_videos", 0))
 
@@ -289,6 +466,11 @@ with tab4:
                 )
                 response.raise_for_status()
                 result = response.json()
+
+                if st.session_state.get("last_processed_video_name") == delete_video_name:
+                    st.session_state["last_processed_video_name"] = None
+                    st.session_state["last_processed_result"] = None
+
                 st.success(result.get("message", "Đã xóa dữ liệu video"))
                 st.json(result)
                 st.rerun()
@@ -314,3 +496,4 @@ with tab4:
                 st.error(f"Lỗi: {detail['error']}")
             else:
                 st.json(detail)
+                show_video_preview(inspect_video_name, title="Video đang xem chi tiết")

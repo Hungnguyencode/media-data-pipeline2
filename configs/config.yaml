@@ -17,7 +17,7 @@ video:
 models:
   whisper:
     name: "base"
-    language: "vi"
+    language: "auto"
     use_fp16: true
     fallback_to_cpu_on_oom: true
 
