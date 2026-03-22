@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -134,6 +135,75 @@ class VectorIndexer:
                     metadata[key] = value
 
         return metadata
+
+    def _normalize_caption_text(self, text: str) -> str:
+        if not text:
+            return ""
+        normalized = text.strip().lower()
+        normalized = re.sub(r"[^\w\s]", " ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
+
+    def _deduplicate_caption_records(
+        self,
+        captions_data: List[Dict[str, Any]],
+        min_time_gap_sec: float = 10.0,
+    ) -> List[Dict[str, Any]]:
+        """
+        Deduplicate captions within the same video by normalized text and nearby timestamp.
+        Keep the earliest caption when the same normalized caption appears repeatedly
+        in a short time window.
+        """
+        deduped: List[Dict[str, Any]] = []
+        last_seen_by_video_and_text: Dict[tuple[str, str], float] = {}
+
+        sorted_captions = sorted(
+            captions_data,
+            key=lambda x: (
+                str(x.get("video_name", "")),
+                float(x.get("timestamp", 0.0) or 0.0),
+            ),
+        )
+
+        for item in sorted_captions:
+            caption_text = (item.get("caption") or "").strip()
+            if not caption_text:
+                continue
+
+            video_name = str(item.get("video_name", "")).strip()
+            normalized = self._normalize_caption_text(caption_text)
+            if not normalized:
+                continue
+
+            timestamp = float(item.get("timestamp", 0.0) or 0.0)
+            key = (video_name, normalized)
+            last_timestamp = last_seen_by_video_and_text.get(key)
+
+            if last_timestamp is not None and abs(timestamp - last_timestamp) < min_time_gap_sec:
+                continue
+
+            deduped.append(item)
+            last_seen_by_video_and_text[key] = timestamp
+
+        return deduped
+
+    def _deduplicate_texts_preserve_order(self, texts: List[str]) -> List[str]:
+        seen: set[str] = set()
+        deduped: List[str] = []
+
+        for text in texts:
+            cleaned = (text or "").strip()
+            if not cleaned:
+                continue
+
+            normalized = self._normalize_caption_text(cleaned)
+            if not normalized or normalized in seen:
+                continue
+
+            seen.add(normalized)
+            deduped.append(cleaned)
+
+        return deduped
 
     def delete_video_data(self, video_name: str) -> int:
         logger.info("Deleting existing indexed data for video: %s", video_name)
@@ -407,6 +477,8 @@ class VectorIndexer:
         return len(ids)
 
     def index_captions(self, captions_data: List[Dict[str, Any]]) -> int:
+        captions_data = self._deduplicate_caption_records(captions_data, min_time_gap_sec=10.0)
+
         texts: List[str] = []
         metadatas: List[Dict[str, Any]] = []
         ids: List[str] = []
@@ -456,7 +528,7 @@ class VectorIndexer:
             metadatas=metadatas,
         )
 
-        logger.info("Indexed %d caption records", len(ids))
+        logger.info("Indexed %d deduplicated caption records", len(ids))
         return len(ids)
 
     def index_multimodal_documents(
@@ -480,6 +552,8 @@ class VectorIndexer:
                 start_time=chunk["start"],
                 end_time=chunk["end"],
             )
+            nearby_captions = self._deduplicate_texts_preserve_order(nearby_captions)
+
             if not nearby_captions:
                 continue
 
