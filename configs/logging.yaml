@@ -19,6 +19,12 @@ handlers:
     filename: logs/pipeline.log
     encoding: utf-8
 
+loggers:
+  chromadb.telemetry.product.posthog:
+    level: CRITICAL
+    handlers: [console, file]
+    propagate: false
+
 root:
   level: INFO
   handlers: [console, file]
