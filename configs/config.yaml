@@ -6,6 +6,7 @@ paths:
   interim_captions_dir: "data/interim/captions"
   processed_dir: "data/processed"
   vector_db_dir: "data/vector_db"
+  video_catalog_path: "data/video_catalog.json"
 
 video:
   frame_sampling_fps: 0.75

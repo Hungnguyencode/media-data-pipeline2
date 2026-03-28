@@ -1,0 +1,26 @@
+[
+  {
+    "video_name": "egg.mp4",
+    "local_video_path": "data/raw/egg.mp4",
+    "source_platform": "youtube",
+    "source_url": "https://www.youtube.com/watch?v=zG9qOl0pCjU&t=183s",
+    "title": "5 Minutes, 2 Eggs! Quick and Easy Fluffy Souffle Omelette Recipe!",
+    "description": "Cooking tutorial demonstrating how to crack and separate eggs for baking.",
+    "thumbnail_url": "",
+    "tags": ["cooking", "egg", "tutorial"],
+    "created_at": "2026-03-27T00:00:00",
+    "ingested_at": "2026-03-27T00:00:00"
+  },
+  {
+    "video_name": "ted_happier.mp4",
+    "local_video_path": "data/raw/ted_happier.mp4",
+    "source_platform": "youtube",
+    "source_url": "https://www.youtube.com/watch?v=pdRWeK9f02w&t=16s",
+    "title": "1 Thing You Can Do Today to Be Happier | Sonja Lyubomirsky | TED",
+    "description": "Talk about happiness, relationships, and human connection.",
+    "thumbnail_url": "",
+    "tags": ["talk", "happiness", "relationships"],
+    "created_at": "2026-03-20T00:00:00",
+    "ingested_at": "2026-03-20T00:00:00"
+  }
+]

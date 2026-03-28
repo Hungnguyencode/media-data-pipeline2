@@ -14,6 +14,7 @@ from src.transform.whisper_processor import WhisperProcessor
 from src.utils import (
     get_config,
     get_data_path,
+    get_video_catalog_entry,
     md5_of_file,
     release_memory,
     save_json,
@@ -62,6 +63,7 @@ class MediaDataPipeline:
             "run_metadata_path": None,
             "stage_metrics_sec": {},
             "data_summary": {},
+            "video_source_info": {},
             "stage_status": {
                 "extract_audio": "pending",
                 "extract_frames": "pending",
@@ -73,6 +75,34 @@ class MediaDataPipeline:
 
     def _mark_stage(self, result: Dict[str, Any], stage_name: str, status: str) -> None:
         result["stage_status"][stage_name] = status
+
+    def _build_video_source_info(self, video_name: str, video_path: str) -> Dict[str, Any]:
+        entry = get_video_catalog_entry(
+            video_name,
+            force_reload=True,
+            config=self.config,
+        ) or {}
+        local_video_path = entry.get("local_video_path") or video_path
+        tags = entry.get("tags") or []
+
+        if isinstance(tags, list):
+            normalized_tags = [str(tag).strip() for tag in tags if str(tag).strip()]
+            video_tags = "|".join(normalized_tags)
+        else:
+            video_tags = str(tags).strip()
+
+        return {
+            "video_name": video_name,
+            "local_video_path": str(local_video_path),
+            "source_platform": str(entry.get("source_platform", "local")).strip() or "local",
+            "source_url": str(entry.get("source_url", "")).strip(),
+            "video_title": str(entry.get("title", video_name)).strip() or video_name,
+            "video_description": str(entry.get("description", "")).strip(),
+            "thumbnail_url": str(entry.get("thumbnail_url", "")).strip(),
+            "video_tags": video_tags,
+            "created_at": str(entry.get("created_at", "")).strip(),
+            "ingested_at": str(entry.get("ingested_at", "")).strip(),
+        }
 
     def process_video(self, video_path: str, reset_index: bool = False) -> Dict[str, Any]:
         video_path = str(Path(video_path).resolve())
@@ -90,12 +120,16 @@ class MediaDataPipeline:
         if not video_file.exists():
             raise FileNotFoundError(f"Video file not found: {video_path}")
 
+        video_source_info = self._build_video_source_info(video_name, video_path)
+        result["video_source_info"] = video_source_info
+
         runtime_metadata = {
             "video_name": video_name,
             "video_path": video_path,
             "pipeline_version": self.pipeline_version,
             "video_size_bytes": video_file.stat().st_size,
             "video_checksum_md5": md5_of_file(video_path),
+            "video_source_info": video_source_info,
         }
 
         stage_metrics = result["stage_metrics_sec"]
@@ -121,6 +155,7 @@ class MediaDataPipeline:
         try:
             with stage_timer("transcribe", stage_metrics):
                 transcription_data = self.whisper_processor.transcribe(audio_path, video_name=video_name)
+                transcription_data["video_source_info"] = video_source_info
                 self._mark_stage(result, "transcribe", "done")
         except Exception:
             self._mark_stage(result, "transcribe", "failed")
@@ -136,11 +171,14 @@ class MediaDataPipeline:
                 "full_text": "",
                 "segments": [],
                 "model_name": self.config["models"]["whisper"].get("name", "base"),
+                "video_source_info": video_source_info,
             }
 
         try:
             with stage_timer("caption", stage_metrics):
                 captions_data = self.vision_processor.process_frames(frames_dir, video_name=video_name)
+                for item in captions_data:
+                    item["video_source_info"] = video_source_info
                 self._mark_stage(result, "caption", "done")
         except Exception:
             self._mark_stage(result, "caption", "failed")
@@ -158,11 +196,18 @@ class MediaDataPipeline:
                     deleted_count = self.vector_indexer.delete_video_data(video_name)
                     logger.info("Deleted %d previous records for '%s'", deleted_count, video_name)
 
-                trans_count = self.vector_indexer.index_transcriptions(transcription_data)
-                cap_count = self.vector_indexer.index_captions(captions_data)
+                trans_count = self.vector_indexer.index_transcriptions(
+                    transcription_data,
+                    video_source_info=video_source_info,
+                )
+                cap_count = self.vector_indexer.index_captions(
+                    captions_data,
+                    video_source_info=video_source_info,
+                )
                 multi_count = self.vector_indexer.index_multimodal_documents(
                     transcription_data=transcription_data,
                     captions_data=captions_data,
+                    video_source_info=video_source_info,
                 )
                 self._mark_stage(result, "index", "done")
         except Exception:
@@ -184,6 +229,7 @@ class MediaDataPipeline:
             "video_path": video_path,
             "audio_path": audio_path,
             "frames_dir": frames_dir,
+            "video_source_info": video_source_info,
             "transcription": transcription_data,
             "captions": captions_data,
             "indexing_summary": data_summary,
@@ -198,6 +244,10 @@ class MediaDataPipeline:
                 "source_modality": "Nguồn dữ liệu: audio/image/audio+image",
                 "model_name": "Tên model dùng để sinh dữ liệu",
                 "pipeline_version": "Phiên bản pipeline",
+                "source_platform": "Nền tảng gốc của video",
+                "source_url": "Link nguồn gốc của video",
+                "video_title": "Tiêu đề video trong catalog",
+                "video_description": "Mô tả video trong catalog",
             },
         }
 
@@ -217,6 +267,7 @@ class MediaDataPipeline:
                 "stage_status": result["stage_status"],
                 "stage_metrics_sec": stage_metrics,
                 "runtime_metadata": runtime_metadata,
+                "video_source_info": video_source_info,
                 "indexing_summary": data_summary,
             }
             run_metadata_path = self.processed_dir / f"{Path(video_name).stem}_run_metadata.json"

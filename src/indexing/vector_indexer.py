@@ -93,6 +93,27 @@ class VectorIndexer:
 
         return [list(vec) for vec in embeddings]
 
+    def _normalize_video_tags(self, tags_value: Any) -> str:
+        if tags_value is None:
+            return ""
+        if isinstance(tags_value, list):
+            return "|".join(str(tag).strip() for tag in tags_value if str(tag).strip())
+        return str(tags_value).strip()
+
+    def _prepare_source_extra(self, video_source_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        source = video_source_info or {}
+        return {
+            "source_platform": str(source.get("source_platform", "")).strip(),
+            "source_url": str(source.get("source_url", "")).strip(),
+            "video_title": str(source.get("video_title", "")).strip(),
+            "video_description": str(source.get("video_description", "")).strip(),
+            "thumbnail_url": str(source.get("thumbnail_url", "")).strip(),
+            "video_tags": self._normalize_video_tags(source.get("video_tags", "")),
+            "local_video_path": str(source.get("local_video_path", "")).strip(),
+            "created_at": str(source.get("created_at", "")).strip(),
+            "ingested_at": str(source.get("ingested_at", "")).strip(),
+        }
+
     def _base_metadata(
         self,
         *,
@@ -134,7 +155,7 @@ class VectorIndexer:
 
         if extra:
             for key, value in extra.items():
-                if value is not None:
+                if value is not None and value != "":
                     metadata[key] = value
 
         return metadata
@@ -282,6 +303,16 @@ class VectorIndexer:
             min_start_time = None
             max_end_time = None
 
+            source_platform = ""
+            source_url = ""
+            video_title = ""
+            video_description = ""
+            thumbnail_url = ""
+            video_tags = ""
+            local_video_path = ""
+            created_at = ""
+            ingested_at = ""
+
             for meta in metadatas:
                 if not isinstance(meta, dict):
                     continue
@@ -303,6 +334,25 @@ class VectorIndexer:
                 pipeline_version = (meta.get("pipeline_version") or "").strip()
                 if pipeline_version:
                     pipeline_versions.add(pipeline_version)
+
+                if not source_platform:
+                    source_platform = str(meta.get("source_platform", "")).strip()
+                if not source_url:
+                    source_url = str(meta.get("source_url", "")).strip()
+                if not video_title:
+                    video_title = str(meta.get("video_title", "")).strip()
+                if not video_description:
+                    video_description = str(meta.get("video_description", "")).strip()
+                if not thumbnail_url:
+                    thumbnail_url = str(meta.get("thumbnail_url", "")).strip()
+                if not video_tags:
+                    video_tags = str(meta.get("video_tags", "")).strip()
+                if not local_video_path:
+                    local_video_path = str(meta.get("local_video_path", "")).strip()
+                if not created_at:
+                    created_at = str(meta.get("created_at", "")).strip()
+                if not ingested_at:
+                    ingested_at = str(meta.get("ingested_at", "")).strip()
 
                 timestamp = meta.get("timestamp")
                 if timestamp is not None:
@@ -337,6 +387,17 @@ class VectorIndexer:
                 "source_modality_counts": source_modality_counts,
                 "languages": sorted(languages),
                 "pipeline_versions": sorted(pipeline_versions),
+                "source_info": {
+                    "source_platform": source_platform,
+                    "source_url": source_url,
+                    "video_title": video_title,
+                    "video_description": video_description,
+                    "thumbnail_url": thumbnail_url,
+                    "video_tags": video_tags,
+                    "local_video_path": local_video_path,
+                    "created_at": created_at,
+                    "ingested_at": ingested_at,
+                },
                 "time_range": {
                     "min_timestamp": min_timestamp,
                     "max_timestamp": max_timestamp,
@@ -418,10 +479,15 @@ class VectorIndexer:
 
         return matched
 
-    def index_transcriptions(self, transcription_data: Dict[str, Any]) -> int:
+    def index_transcriptions(
+        self,
+        transcription_data: Dict[str, Any],
+        video_source_info: Optional[Dict[str, Any]] = None,
+    ) -> int:
         video_name = transcription_data["video_name"]
         full_text = transcription_data.get("full_text", "").strip()
         segments = transcription_data.get("segments", [])
+        source_extra = self._prepare_source_extra(video_source_info)
 
         texts: List[str] = []
         metadatas: List[Dict[str, Any]] = []
@@ -442,6 +508,7 @@ class VectorIndexer:
                     source_modality="audio",
                     model_name=transcription_data.get("model_name"),
                     document_language=transcription_data.get("language"),
+                    extra=source_extra,
                 )
             )
 
@@ -466,6 +533,7 @@ class VectorIndexer:
                     start_time=chunk["start"],
                     end_time=chunk["end"],
                     document_language=transcription_data.get("language"),
+                    extra=source_extra,
                 )
             )
 
@@ -484,8 +552,13 @@ class VectorIndexer:
         logger.info("Indexed %d transcription records for '%s'", len(ids), video_name)
         return len(ids)
 
-    def index_captions(self, captions_data: List[Dict[str, Any]]) -> int:
+    def index_captions(
+        self,
+        captions_data: List[Dict[str, Any]],
+        video_source_info: Optional[Dict[str, Any]] = None,
+    ) -> int:
         captions_data = self._deduplicate_caption_records(captions_data, min_time_gap_sec=10.0)
+        source_extra = self._prepare_source_extra(video_source_info)
 
         texts: List[str] = []
         text_metadatas: List[Dict[str, Any]] = []
@@ -508,6 +581,12 @@ class VectorIndexer:
             image_path = item.get("image_path")
             timestamp = safe_float(item.get("timestamp"), 0.0)
 
+            base_extra = {
+                **source_extra,
+                "clip_model_name": item.get("clip_model_name"),
+                "embedding_source": "blip_caption+clip_image",
+            }
+
             base_meta = self._base_metadata(
                 video_name=video_name,
                 content_type="caption",
@@ -517,10 +596,7 @@ class VectorIndexer:
                 frame_name=frame_name,
                 image_path=image_path,
                 document_language=item.get("language", "en"),
-                extra={
-                    "clip_model_name": item.get("clip_model_name"),
-                    "embedding_source": "blip_caption+clip_image",
-                },
+                extra=base_extra,
             )
 
             text_payload = {
@@ -580,12 +656,14 @@ class VectorIndexer:
         self,
         transcription_data: Dict[str, Any],
         captions_data: List[Dict[str, Any]],
+        video_source_info: Optional[Dict[str, Any]] = None,
     ) -> int:
         if not self.enable_multimodal_documents:
             return 0
 
         video_name = transcription_data["video_name"]
         chunks = self._build_segment_chunks(transcription_data.get("segments", []))
+        source_extra = self._prepare_source_extra(video_source_info)
 
         texts: List[str] = []
         metadatas: List[Dict[str, Any]] = []
@@ -627,6 +705,7 @@ class VectorIndexer:
                     end_time=chunk["end"],
                     document_language="vi+en",
                     extra={
+                        **source_extra,
                         "num_attached_captions": len(nearby_captions[:3]),
                     },
                 )

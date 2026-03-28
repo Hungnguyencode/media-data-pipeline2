@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.indexing.vector_indexer import VectorIndexer
@@ -148,31 +149,56 @@ class SearchEngine:
         return fused
 
     def _caption_quality_score(self, text: str) -> int:
+        """
+        General text cleanliness score only.
+        No domain-specific keyword preferences.
+        """
         if not text:
             return -999
 
+        cleaned = str(text).strip()
+        if not cleaned:
+            return -999
+
+        lower = cleaned.lower()
+        words = re.findall(r"\b\w+\b", lower)
+        if not words:
+            return -999
+
         score = 0
-        lower = text.lower()
+        word_count = len(words)
+        unique_ratio = len(set(words)) / max(word_count, 1)
 
-        if "cracking an egg" in lower:
-            score += 8
-        if "into a bowl" in lower:
+        # Prefer captions with reasonable length
+        if 4 <= word_count <= 14:
             score += 4
-        if "egg" in lower:
+        elif 2 <= word_count <= 18:
             score += 2
-        if "bowl" in lower:
-            score += 2
+        else:
+            score -= 2
 
-        bad_patterns = [
-            "in a blend",
-            "peeling an egg",
-            "squeezing an egg",
-        ]
-        for pattern in bad_patterns:
-            if pattern in lower:
-                score -= 4
+        # Prefer captions with more lexical variety
+        if unique_ratio >= 0.8:
+            score += 3
+        elif unique_ratio >= 0.6:
+            score += 1
+        else:
+            score -= 2
 
-        score -= abs(len(text) - 40) // 10
+        # Penalize repeated words / noisy phrases
+        repeated_word_penalty = max(0, word_count - len(set(words)))
+        score -= repeated_word_penalty
+
+        # Penalize obviously messy punctuation patterns
+        if "  " in cleaned:
+            score -= 1
+        if cleaned.endswith(("a", "an", "the", "of", "with", "in", "on", "to")):
+            score -= 1
+
+        # Mild preference for sentence-like captions
+        if cleaned and cleaned[0].isupper():
+            score += 1
+
         return score
 
     def _find_nearby_speech_context(
@@ -284,8 +310,16 @@ class SearchEngine:
         event_results: List[Dict[str, Any]] = []
         for group in groups:
             best_item = max(group, key=lambda x: x.get("fusion_score", 0.0))
-            captions = [g.get("document", "") for g in group if (g.get("metadata") or {}).get("content_type") == "caption"]
-            best_caption = max(captions, key=self._caption_quality_score) if captions else best_item.get("document", "")
+
+            captions = [
+                g.get("document", "")
+                for g in group
+                if (g.get("metadata") or {}).get("content_type") == "caption"
+            ]
+            if captions:
+                best_caption = max(captions, key=self._caption_quality_score)
+            else:
+                best_caption = best_item.get("document", "")
 
             timestamps = []
             for g in group:
@@ -306,8 +340,17 @@ class SearchEngine:
                 "start": event_start,
                 "end": event_end,
             }
+
+            # Prefer the caption only when it is reasonably clean;
+            # otherwise keep the best fused result text.
+            best_document = best_item.get("document", "") or ""
+            if self._caption_quality_score(best_caption) >= self._caption_quality_score(best_document):
+                display_text = best_caption
+            else:
+                display_text = best_document
+
             event_item["display_caption"] = best_caption
-            event_item["display_text"] = best_caption
+            event_item["display_text"] = display_text
 
             meta = dict(event_item.get("metadata", {}) or {})
             if event_start is not None:

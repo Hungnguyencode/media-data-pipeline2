@@ -99,39 +99,65 @@ class VisionProcessor:
             caption = caption[0].upper() + caption[1:]
         return caption
 
+    def _remove_repeated_phrases(self, text: str) -> str:
+        """
+        Remove immediate repeated 1- to 3-word phrases, e.g.
+        'a man a man holding a cup' -> 'a man holding a cup'
+        """
+        tokens = text.split()
+        if not tokens:
+            return text
+
+        changed = True
+        while changed:
+            changed = False
+            for n in (3, 2, 1):
+                i = 0
+                new_tokens: List[str] = []
+                while i < len(tokens):
+                    if i + 2 * n <= len(tokens) and tokens[i : i + n] == tokens[i + n : i + 2 * n]:
+                        new_tokens.extend(tokens[i : i + n])
+                        i += 2 * n
+                        changed = True
+                    else:
+                        new_tokens.append(tokens[i])
+                        i += 1
+                tokens = new_tokens
+
+        return " ".join(tokens)
+
     def _refine_caption(self, caption: str, timestamp: float) -> str:
+        """
+        General cleanup only.
+        Do NOT rewrite semantic meaning based on a specific demo domain.
+        """
+        _ = timestamp  # kept for interface stability
+
         if not caption:
             return caption
 
-        refined = caption.strip()
-        lower = refined.lower()
+        refined = caption.strip().lower()
 
-        replacements = [
+        # Normalize whitespace
+        refined = re.sub(r"\s+", " ", refined).strip()
+
+        # Very light, general typo/phrase cleanup only
+        general_replacements = [
             (" in a blend", " in a bowl"),
             (" into a blend", " into a bowl"),
             (" in the blend", " in the bowl"),
-            (" peeling an egg", " cracking an egg"),
-            (" squeezing an egg", " cracking an egg"),
-            (" squeezing egg", " cracking egg"),
-            (" peel an egg", " crack an egg"),
+            (" on a blend", " on a bowl"),
         ]
+        for old, new in general_replacements:
+            refined = refined.replace(old, new)
 
-        for old, new in replacements:
-            lower = lower.replace(old, new)
+        # Remove obvious repeated phrases/words
+        refined = self._remove_repeated_phrases(refined)
+        refined = re.sub(r"\b(\w+)( \1\b)+", r"\1", refined)
+        refined = re.sub(r"\s+", " ", refined).strip()
 
-        if "egg" in lower and "bowl" in lower:
-            lower = lower.replace("peeling an egg", "cracking an egg")
-            lower = lower.replace("squeezing an egg", "cracking an egg")
-
-        if "egg" in lower and "bowl" in lower and timestamp <= 20:
-            if "cracking an egg" in lower and "into a bowl" not in lower:
-                lower = lower.replace("cracking an egg", "cracking an egg into a bowl")
-            if "person is cracking an egg" in lower and "into a bowl" not in lower:
-                lower = lower.replace("person is cracking an egg", "person is cracking an egg into a bowl")
-
-        lower = re.sub(r"\s+", " ", lower).strip()
-        if lower:
-            refined = lower[0].upper() + lower[1:]
+        if refined:
+            refined = refined[0].upper() + refined[1:]
 
         return refined
 

@@ -15,6 +15,11 @@ class FakeSearchEngine:
                     "content_type": content_type or "transcription",
                     "timestamp": 1.23,
                     "timestamp_str": "00:00:01",
+                    "source_platform": "youtube",
+                    "source_url": "https://youtube.com/example",
+                    "video_title": "Demo Video",
+                    "video_description": "A demo video for testing.",
+                    "video_tags": "demo|test",
                 },
                 "distance": 0.1,
                 "relevance": 0.9,
@@ -54,6 +59,17 @@ class FakeVectorIndexer:
                 "source_modality_counts": {},
                 "languages": [],
                 "pipeline_versions": [],
+                "source_info": {
+                    "source_platform": "",
+                    "source_url": "",
+                    "video_title": "",
+                    "video_description": "",
+                    "thumbnail_url": "",
+                    "video_tags": "",
+                    "local_video_path": "",
+                    "created_at": "",
+                    "ingested_at": "",
+                },
                 "time_range": {
                     "min_timestamp": None,
                     "max_timestamp": None,
@@ -79,6 +95,17 @@ class FakeVectorIndexer:
             },
             "languages": ["en", "vi", "vi+en"],
             "pipeline_versions": ["2.0.0"],
+            "source_info": {
+                "source_platform": "youtube",
+                "source_url": "https://youtube.com/example",
+                "video_title": "Demo Video",
+                "video_description": "A demo video for testing.",
+                "thumbnail_url": "",
+                "video_tags": "demo|test",
+                "local_video_path": "data/raw/demo.mp4",
+                "created_at": "2026-03-27T00:00:00",
+                "ingested_at": "2026-03-27T00:00:00",
+            },
             "time_range": {
                 "min_timestamp": 0.0,
                 "max_timestamp": 12.0,
@@ -126,6 +153,17 @@ class FakePipeline:
             "multimodal_records": 2,
             "merged_output_path": "data/processed/demo_merged_output.json",
             "run_metadata_path": "data/processed/demo_run_metadata.json",
+            "video_source_info": {
+                "source_platform": "youtube",
+                "source_url": "https://youtube.com/example",
+                "video_title": "Demo Video",
+                "video_description": "A demo video for testing.",
+                "thumbnail_url": "",
+                "video_tags": "demo|test",
+                "local_video_path": "data/raw/demo.mp4",
+                "created_at": "2026-03-27T00:00:00",
+                "ingested_at": "2026-03-27T00:00:00",
+            },
             "stage_status": {
                 "extract_audio": "done",
                 "extract_frames": "done",
@@ -178,6 +216,7 @@ def test_all_videos_inventory():
     data = response.json()
     assert data["total_videos"] == 2
     assert len(data["videos"]) == 2
+    assert data["videos"][0]["source_info"]["source_platform"] == "youtube"
 
 
 def test_get_video_inventory_success():
@@ -187,6 +226,7 @@ def test_get_video_inventory_success():
     assert data["video_name"] == "demo.mp4"
     assert data["exists"] is True
     assert data["total_records"] == 6
+    assert data["source_info"]["video_title"] == "Demo Video"
 
 
 def test_get_video_inventory_not_found():
@@ -228,6 +268,8 @@ def test_search_success():
     assert data["results"][0]["document"] == "artificial intelligence introduction"
     assert data["results"][0]["score_type"] == "hybrid_fusion"
     assert data["results"][0]["similarity_score"] == 0.9
+    assert data["results"][0]["metadata"]["source_platform"] == "youtube"
+    assert data["results"][0]["metadata"]["source_url"] == "https://youtube.com/example"
 
 
 def test_search_rejects_empty_query():
@@ -268,3 +310,4 @@ def test_process_video_success():
     assert data["video_name"] == "demo.mp4"
     assert data["multimodal_records"] == 2
     assert data["stage_status"]["index"] == "done"
+    assert data["video_source_info"]["source_platform"] == "youtube"

@@ -73,7 +73,7 @@ class FakeCollection:
         return len(self.items)
 
 
-class TestableVectorIndexer(VectorIndexer):
+class DummyVectorIndexer(VectorIndexer):
     def __init__(self):
         self.config = {
             "paths": {
@@ -118,8 +118,21 @@ class TestableVectorIndexer(VectorIndexer):
         self.clip_collection = FakeCollection()
 
 
+VIDEO_SOURCE_INFO = {
+    "source_platform": "youtube",
+    "source_url": "https://youtube.com/example",
+    "video_title": "Demo Video",
+    "video_description": "A demo video for testing.",
+    "thumbnail_url": "",
+    "video_tags": "demo|test",
+    "local_video_path": "data/raw/demo.mp4",
+    "created_at": "2026-03-27T00:00:00",
+    "ingested_at": "2026-03-27T00:00:00",
+}
+
+
 def test_base_metadata_does_not_include_none_values():
-    indexer = TestableVectorIndexer()
+    indexer = DummyVectorIndexer()
 
     metadata = indexer._base_metadata(
         video_name="demo.mp4",
@@ -132,12 +145,16 @@ def test_base_metadata_does_not_include_none_values():
         frame_name=None,
         image_path=None,
         document_language="vi",
+        extra=indexer._prepare_source_extra(VIDEO_SOURCE_INFO),
     )
 
     assert metadata["video_name"] == "demo.mp4"
     assert metadata["content_type"] == "transcription"
     assert metadata["source_modality"] == "audio"
     assert metadata["document_language"] == "vi"
+    assert metadata["source_platform"] == "youtube"
+    assert metadata["source_url"] == "https://youtube.com/example"
+    assert metadata["video_title"] == "Demo Video"
 
     assert "model_name" not in metadata
     assert "timestamp" not in metadata
@@ -151,7 +168,7 @@ def test_base_metadata_does_not_include_none_values():
 
 
 def test_index_transcriptions():
-    indexer = TestableVectorIndexer()
+    indexer = DummyVectorIndexer()
 
     transcription_data = {
         "video_name": "demo.mp4",
@@ -165,7 +182,7 @@ def test_index_transcriptions():
         "model_name": "whisper-base",
     }
 
-    count = indexer.index_transcriptions(transcription_data)
+    count = indexer.index_transcriptions(transcription_data, video_source_info=VIDEO_SOURCE_INFO)
 
     assert count == 2
     assert len(indexer.text_collection.upsert_calls) == 1
@@ -175,10 +192,12 @@ def test_index_transcriptions():
     assert len(call["ids"]) == 2
     assert call["metadatas"][0]["content_type"] == "transcription"
     assert call["metadatas"][1]["content_type"] == "segment_chunk"
+    assert call["metadatas"][0]["source_platform"] == "youtube"
+    assert call["metadatas"][0]["video_title"] == "Demo Video"
 
 
 def test_index_captions():
-    indexer = TestableVectorIndexer()
+    indexer = DummyVectorIndexer()
 
     captions_data = [
         {
@@ -194,7 +213,7 @@ def test_index_captions():
         }
     ]
 
-    count = indexer.index_captions(captions_data)
+    count = indexer.index_captions(captions_data, video_source_info=VIDEO_SOURCE_INFO)
 
     assert count == 2
     assert len(indexer.text_collection.upsert_calls) == 1
@@ -208,10 +227,11 @@ def test_index_captions():
     assert text_call["metadatas"][0]["content_type"] == "caption"
     assert clip_call["metadatas"][0]["content_type"] == "caption"
     assert text_call["metadatas"][0]["source_modality"] == "image"
+    assert text_call["metadatas"][0]["source_url"] == "https://youtube.com/example"
 
 
 def test_index_multimodal_documents():
-    indexer = TestableVectorIndexer()
+    indexer = DummyVectorIndexer()
 
     transcription_data = {
         "video_name": "demo.mp4",
@@ -237,7 +257,11 @@ def test_index_multimodal_documents():
         }
     ]
 
-    count = indexer.index_multimodal_documents(transcription_data, captions_data)
+    count = indexer.index_multimodal_documents(
+        transcription_data,
+        captions_data,
+        video_source_info=VIDEO_SOURCE_INFO,
+    )
 
     assert count == 1
     assert len(indexer.text_collection.upsert_calls) == 1
@@ -247,10 +271,11 @@ def test_index_multimodal_documents():
     assert len(call["ids"]) == 1
     assert call["metadatas"][0]["content_type"] == "multimodal"
     assert call["metadatas"][0]["source_modality"] == "audio+image"
+    assert call["metadatas"][0]["source_platform"] == "youtube"
 
 
 def test_delete_video_data():
-    indexer = TestableVectorIndexer()
+    indexer = DummyVectorIndexer()
 
     indexer.text_collection.items = [
         {
@@ -281,7 +306,7 @@ def test_delete_video_data():
 
 
 def test_list_videos_and_inventory():
-    indexer = TestableVectorIndexer()
+    indexer = DummyVectorIndexer()
 
     indexer.text_collection.items = [
         {
@@ -293,6 +318,11 @@ def test_list_videos_and_inventory():
                 "source_modality": "audio",
                 "document_language": "vi",
                 "pipeline_version": "2.0.0",
+                "source_platform": "youtube",
+                "source_url": "https://youtube.com/example",
+                "video_title": "Demo Video",
+                "video_description": "A demo video for testing.",
+                "video_tags": "demo|test",
             },
         }
     ]
@@ -307,6 +337,11 @@ def test_list_videos_and_inventory():
                 "document_language": "en",
                 "pipeline_version": "2.0.0",
                 "timestamp": 1.0,
+                "source_platform": "youtube",
+                "source_url": "https://youtube.com/example",
+                "video_title": "Demo Video",
+                "video_description": "A demo video for testing.",
+                "video_tags": "demo|test",
             },
         }
     ]
@@ -319,10 +354,13 @@ def test_list_videos_and_inventory():
     assert inventory["total_records"] == 2
     assert inventory["content_type_counts"]["transcription"] == 1
     assert inventory["content_type_counts"]["caption"] == 1
+    assert inventory["source_info"]["source_platform"] == "youtube"
+    assert inventory["source_info"]["source_url"] == "https://youtube.com/example"
+    assert inventory["source_info"]["video_title"] == "Demo Video"
 
 
 def test_get_all_videos_inventory():
-    indexer = TestableVectorIndexer()
+    indexer = DummyVectorIndexer()
 
     indexer.text_collection.items = [
         {
@@ -334,6 +372,9 @@ def test_get_all_videos_inventory():
                 "source_modality": "audio",
                 "document_language": "vi",
                 "pipeline_version": "2.0.0",
+                "source_platform": "youtube",
+                "source_url": "https://youtube.com/example",
+                "video_title": "Demo Video",
             },
         }
     ]
@@ -348,6 +389,9 @@ def test_get_all_videos_inventory():
                 "document_language": "en",
                 "pipeline_version": "2.0.0",
                 "timestamp": 2.0,
+                "source_platform": "facebook",
+                "source_url": "https://facebook.com/example",
+                "video_title": "Lesson Video",
             },
         }
     ]
@@ -358,7 +402,7 @@ def test_get_all_videos_inventory():
 
 
 def test_get_stats():
-    indexer = TestableVectorIndexer()
+    indexer = DummyVectorIndexer()
 
     indexer.text_collection.items = [{"id": "a", "document": "x", "metadata": {}}]
     indexer.clip_collection.items = [{"id": "b", "document": "y", "metadata": {}}]
