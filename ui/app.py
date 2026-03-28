@@ -317,10 +317,14 @@ with tab1:
                             st.write("Loại:", meta.get("content_type"))
                         with col3:
                             score = result.get("similarity_score")
+                            fusion = result.get("fusion_score")
                             if score is not None:
                                 st.write("Similarity proxy:", f"{score:.4f}")
+                                
                             else:
                                 st.write("Similarity proxy:", "N/A")
+                            if fusion is not None:
+                                st.write("Hybrid Fusion Score:", f"{fusion:.4f}")
 
                         if result.get("distance") is not None:
                             st.caption(f"Distance: {result['distance']:.6f}")

@@ -382,5 +382,7 @@ class SearchEngine:
             )
 
         fused_results = self._fuse_results(text_results, clip_results)
+        MIN_FUSION_SCORE = 0.3 
+        fused_results = [res for res in fused_results if res.get("fusion_score", 0.0) >= MIN_FUSION_SCORE]
         final_results = self._group_results_into_events(fused_results, top_k=top_k)
         return final_results
