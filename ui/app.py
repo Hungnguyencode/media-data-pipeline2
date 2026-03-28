@@ -144,6 +144,13 @@ SAMPLE_QUERIES = [
     "hạnh phúc đến từ đâu",
     "kết nối con người",
     "mối quan hệ với người khác",
+    "crack egg",
+    "separate egg",
+    "egg yolk",
+    "egg white",
+    "tách trứng",
+    "lòng đỏ trứng",
+    "lòng trắng trứng",
 ]
 
 if "last_processed_result" not in st.session_state:
@@ -161,7 +168,10 @@ st.title("Media Semantic Search")
 with st.sidebar:
     st.markdown("### Backend")
     st.code(API_BASE)
-    st.caption("Lưu ý: Score hiển thị là similarity proxy = 1 - distance, không phải xác suất.")
+    st.caption(
+        "Lưu ý: Score hiển thị là similarity proxy = 1 - distance, không phải xác suất. "
+        "Caption là mô tả tự động tham khảo, không phải ground truth."
+    )
 
     if st.button("Làm mới danh sách video"):
         st.rerun()
@@ -185,7 +195,7 @@ with tab1:
 
     st.info(
         "Gợi ý sử dụng: truy vấn chủ đề/ý nghĩa nên ưu tiên 'Đoạn transcript' hoặc 'Tài liệu đa phương thức'. "
-        "Truy vấn thiên về khung cảnh/vật thể nên ưu tiên 'Caption ảnh' hoặc 'Tài liệu đa phương thức'."
+        "Truy vấn thiên về khung cảnh/vật thể/hành động nên ưu tiên 'Caption ảnh' hoặc 'Tài liệu đa phương thức'."
     )
 
     if st.session_state.get("last_processed_video_name"):
@@ -273,15 +283,32 @@ with tab1:
                     st.success(f"Tìm thấy {len(results)} kết quả.")
 
                     for i, result in enumerate(results, start=1):
-                        meta = result.get("metadata", {})
+                        meta = result.get("metadata", {}) or {}
                         st.markdown(f"### Đoạn video phù hợp {i}")
 
-                        doc_text = result.get("document", "") or ""
-                        st.write(shorten_text(doc_text, max_chars=280))
+                        display_text = result.get("display_text") or result.get("document", "") or ""
+                        auto_caption = result.get("display_caption") or result.get("document", "") or ""
+                        raw_doc_text = result.get("document", "") or ""
+                        nearby_speech = result.get("nearby_speech_context") or ""
+
+                        st.markdown("**Matched frame description**")
+                        st.write(shorten_text(display_text, max_chars=280))
+
+                        if auto_caption:
+                            st.caption(f"Auto-caption: {auto_caption}")
+
+                        if nearby_speech:
+                            st.caption(
+                                f"Nearby speech context: {shorten_text(nearby_speech, max_chars=220)}"
+                            )
 
                         timestamp_str = meta.get("timestamp_str") or meta.get("timestamp")
                         start_time_str = meta.get("start_time_str") or meta.get("start_time")
                         end_time_str = meta.get("end_time_str") or meta.get("end_time")
+
+                        event_range = result.get("event_time_range") or {}
+                        event_start = event_range.get("start")
+                        event_end = event_range.get("end")
 
                         col1, col2, col3 = st.columns(3)
                         with col1:
@@ -302,10 +329,15 @@ with tab1:
                             st.caption(f"Score type: {result['score_type']}")
 
                         if timestamp_str is not None:
-                            st.markdown(f"**Mốc video:** `{timestamp_str}`")
+                            st.markdown(f"**Mốc frame tốt nhất:** `{timestamp_str}`")
+
+                        if event_start is not None and event_end is not None:
+                            st.markdown(
+                                f"**Khoảng event gần đúng:** `{event_start:.2f}s -> {event_end:.2f}s`"
+                            )
 
                         if start_time_str is not None and end_time_str is not None:
-                            st.markdown(f"**Khoảng thời gian:** `{start_time_str} -> {end_time_str}`")
+                            st.markdown(f"**Khoảng thời gian tài liệu:** `{start_time_str} -> {end_time_str}`")
                             st.caption(
                                 "Đối chiếu video: tua video đến đúng khoảng thời gian này để xem nội dung tương ứng."
                             )
@@ -322,8 +354,11 @@ with tab1:
                         if meta.get("document_language"):
                             st.write("Language:", meta.get("document_language"))
 
-                        with st.expander("Xem toàn bộ nội dung kết quả"):
-                            st.write(doc_text)
+                        if result.get("group_size") is not None:
+                            st.write("Nearby matched frames grouped:", result.get("group_size"))
+
+                        with st.expander("Xem toàn bộ nội dung gốc"):
+                            st.write(raw_doc_text)
 
                         st.divider()
 

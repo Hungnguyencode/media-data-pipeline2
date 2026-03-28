@@ -37,6 +37,7 @@ class MediaDataPipeline:
         self.search_engine = SearchEngine(
             config=self.config,
             vector_indexer=self.vector_indexer,
+            vision_processor=self.vision_processor,
         )
 
         self.processed_dir = Path(

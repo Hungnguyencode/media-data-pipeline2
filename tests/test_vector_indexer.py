@@ -48,7 +48,10 @@ class FakeCollection:
         filtered = self.items
 
         if where and "video_name" in where:
-            filtered = [item for item in filtered if item["metadata"].get("video_name") == where["video_name"]]
+            filtered = [
+                item for item in filtered
+                if item["metadata"].get("video_name") == where["video_name"]
+            ]
 
         ids = [item["id"] for item in filtered]
         documents = [item["document"] for item in filtered]
@@ -84,21 +87,23 @@ class TestableVectorIndexer(VectorIndexer):
                 }
             },
             "pipeline": {
-                "version": "1.2.0",
+                "version": "2.0.0",
                 "segment_window": 3,
                 "segment_overlap": 1,
                 "caption_merge_window_sec": 3.0,
                 "enable_multimodal_documents": True,
             },
             "vector_db": {
-                "collection_name": "video_semantic_search",
+                "text_collection_name": "video_semantic_search_text",
+                "clip_collection_name": "video_semantic_search_clip",
                 "distance_metric": "cosine",
             },
         }
 
         self.device = "cpu"
         self.persist_dir = None
-        self.collection_name = "video_semantic_search"
+        self.text_collection_name = "video_semantic_search_text"
+        self.clip_collection_name = "video_semantic_search_clip"
         self.distance_metric = "cosine"
         self.embedding_model_name = "fake-embedding-model"
         self.batch_size = 32
@@ -107,12 +112,10 @@ class TestableVectorIndexer(VectorIndexer):
         self.segment_overlap = 1
         self.caption_merge_window_sec = 3.0
         self.enable_multimodal_documents = True
-        self.pipeline_version = "1.2.0"
+        self.pipeline_version = "2.0.0"
         self.embedding_model = FakeEmbeddingModel()
-        self.collection = FakeCollection()
-
-    def _get_or_create_collection(self):
-        return self.collection
+        self.text_collection = FakeCollection()
+        self.clip_collection = FakeCollection()
 
 
 def test_base_metadata_does_not_include_none_values():
@@ -165,9 +168,10 @@ def test_index_transcriptions():
     count = indexer.index_transcriptions(transcription_data)
 
     assert count == 2
-    assert len(indexer.collection.upsert_calls) == 1
+    assert len(indexer.text_collection.upsert_calls) == 1
+    assert len(indexer.clip_collection.upsert_calls) == 0
 
-    call = indexer.collection.upsert_calls[0]
+    call = indexer.text_collection.upsert_calls[0]
     assert len(call["ids"]) == 2
     assert call["metadatas"][0]["content_type"] == "transcription"
     assert call["metadatas"][1]["content_type"] == "segment_chunk"
@@ -183,20 +187,27 @@ def test_index_captions():
             "image_path": "data/interim/frames/demo/frame_0001_1.00s.jpg",
             "caption": "A person giving a presentation",
             "timestamp": 1.0,
-            "model_name": "blip-base",
+            "blip_model_name": "blip-base",
+            "clip_model_name": "ViT-B-32:openai",
             "language": "en",
+            "clip_embedding": [0.1, 0.2, 0.3],
         }
     ]
 
     count = indexer.index_captions(captions_data)
 
-    assert count == 1
-    assert len(indexer.collection.upsert_calls) == 1
+    assert count == 2
+    assert len(indexer.text_collection.upsert_calls) == 1
+    assert len(indexer.clip_collection.upsert_calls) == 1
 
-    call = indexer.collection.upsert_calls[0]
-    assert len(call["ids"]) == 1
-    assert call["metadatas"][0]["content_type"] == "caption"
-    assert call["metadatas"][0]["source_modality"] == "image"
+    text_call = indexer.text_collection.upsert_calls[0]
+    clip_call = indexer.clip_collection.upsert_calls[0]
+
+    assert len(text_call["ids"]) == 1
+    assert len(clip_call["ids"]) == 1
+    assert text_call["metadatas"][0]["content_type"] == "caption"
+    assert clip_call["metadatas"][0]["content_type"] == "caption"
+    assert text_call["metadatas"][0]["source_modality"] == "image"
 
 
 def test_index_multimodal_documents():
@@ -221,7 +232,7 @@ def test_index_multimodal_documents():
             "image_path": "data/interim/frames/demo/frame_0001_1.00s.jpg",
             "caption": "A person giving a presentation",
             "timestamp": 1.0,
-            "model_name": "blip-base",
+            "blip_model_name": "blip-base",
             "language": "en",
         }
     ]
@@ -229,9 +240,10 @@ def test_index_multimodal_documents():
     count = indexer.index_multimodal_documents(transcription_data, captions_data)
 
     assert count == 1
-    assert len(indexer.collection.upsert_calls) == 1
+    assert len(indexer.text_collection.upsert_calls) == 1
+    assert len(indexer.clip_collection.upsert_calls) == 0
 
-    call = indexer.collection.upsert_calls[0]
+    call = indexer.text_collection.upsert_calls[0]
     assert len(call["ids"]) == 1
     assert call["metadatas"][0]["content_type"] == "multimodal"
     assert call["metadatas"][0]["source_modality"] == "audio+image"
@@ -240,30 +252,38 @@ def test_index_multimodal_documents():
 def test_delete_video_data():
     indexer = TestableVectorIndexer()
 
-    indexer.collection.items = [
+    indexer.text_collection.items = [
         {
-            "id": "id_1",
+            "id": "text_1",
             "document": "doc 1",
             "metadata": {"video_name": "demo.mp4"},
         },
         {
-            "id": "id_2",
+            "id": "text_2",
             "document": "doc 2",
             "metadata": {"video_name": "other.mp4"},
         },
     ]
+    indexer.clip_collection.items = [
+        {
+            "id": "clip_1",
+            "document": "doc 3",
+            "metadata": {"video_name": "demo.mp4"},
+        }
+    ]
 
     deleted = indexer.delete_video_data("demo.mp4")
 
-    assert deleted == 1
-    assert "id_1" in indexer.collection.deleted_ids
-    assert "id_2" not in indexer.collection.deleted_ids
+    assert deleted == 2
+    assert "text_1" in indexer.text_collection.deleted_ids
+    assert "clip_1" in indexer.clip_collection.deleted_ids
+    assert "text_2" not in indexer.text_collection.deleted_ids
 
 
 def test_list_videos_and_inventory():
     indexer = TestableVectorIndexer()
 
-    indexer.collection.items = [
+    indexer.text_collection.items = [
         {
             "id": "id_1",
             "document": "doc 1",
@@ -272,9 +292,11 @@ def test_list_videos_and_inventory():
                 "content_type": "transcription",
                 "source_modality": "audio",
                 "document_language": "vi",
-                "pipeline_version": "1.2.0",
+                "pipeline_version": "2.0.0",
             },
-        },
+        }
+    ]
+    indexer.clip_collection.items = [
         {
             "id": "id_2",
             "document": "doc 2",
@@ -283,10 +305,10 @@ def test_list_videos_and_inventory():
                 "content_type": "caption",
                 "source_modality": "image",
                 "document_language": "en",
-                "pipeline_version": "1.2.0",
+                "pipeline_version": "2.0.0",
                 "timestamp": 1.0,
             },
-        },
+        }
     ]
 
     videos = indexer.list_videos()
@@ -302,7 +324,7 @@ def test_list_videos_and_inventory():
 def test_get_all_videos_inventory():
     indexer = TestableVectorIndexer()
 
-    indexer.collection.items = [
+    indexer.text_collection.items = [
         {
             "id": "id_1",
             "document": "doc 1",
@@ -311,9 +333,11 @@ def test_get_all_videos_inventory():
                 "content_type": "transcription",
                 "source_modality": "audio",
                 "document_language": "vi",
-                "pipeline_version": "1.2.0",
+                "pipeline_version": "2.0.0",
             },
-        },
+        }
+    ]
+    indexer.clip_collection.items = [
         {
             "id": "id_2",
             "document": "doc 2",
@@ -322,12 +346,26 @@ def test_get_all_videos_inventory():
                 "content_type": "caption",
                 "source_modality": "image",
                 "document_language": "en",
-                "pipeline_version": "1.2.0",
+                "pipeline_version": "2.0.0",
                 "timestamp": 2.0,
             },
-        },
+        }
     ]
 
     inventory = indexer.get_all_videos_inventory()
     assert inventory["total_videos"] == 2
     assert len(inventory["videos"]) == 2
+
+
+def test_get_stats():
+    indexer = TestableVectorIndexer()
+
+    indexer.text_collection.items = [{"id": "a", "document": "x", "metadata": {}}]
+    indexer.clip_collection.items = [{"id": "b", "document": "y", "metadata": {}}]
+
+    stats = indexer.get_stats()
+
+    assert stats["text_collection_name"] == "video_semantic_search_text"
+    assert stats["clip_collection_name"] == "video_semantic_search_clip"
+    assert stats["text_total_documents"] == 1
+    assert stats["clip_total_documents"] == 1

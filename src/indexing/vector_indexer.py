@@ -5,7 +5,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import chromadb
 from chromadb.config import Settings
@@ -25,7 +25,14 @@ class VectorIndexer:
         self.persist_dir = Path(get_data_path(vector_db_dir))
         self.persist_dir.mkdir(parents=True, exist_ok=True)
 
-        self.collection_name = self.config["vector_db"].get("collection_name", "video_semantic_search")
+        self.text_collection_name = self.config["vector_db"].get(
+            "text_collection_name",
+            "video_semantic_search_text",
+        )
+        self.clip_collection_name = self.config["vector_db"].get(
+            "clip_collection_name",
+            "video_semantic_search_clip",
+        )
         self.distance_metric = self.config["vector_db"].get("distance_metric", "cosine")
 
         self.embedding_model_name = self.config["models"]["embedding"]["name"]
@@ -51,15 +58,16 @@ class VectorIndexer:
             settings=Settings(anonymized_telemetry=False),
         )
 
-        self.collection = self._get_or_create_collection()
+        self.text_collection = self._get_or_create_collection(self.text_collection_name)
+        self.clip_collection = self._get_or_create_collection(self.clip_collection_name)
 
-    def _get_or_create_collection(self):
+    def _get_or_create_collection(self, collection_name: str):
         try:
-            return self.client.get_collection(name=self.collection_name)
+            return self.client.get_collection(name=collection_name)
         except Exception:
-            logger.info("Collection '%s' not found. Creating new one.", self.collection_name)
+            logger.info("Collection '%s' not found. Creating new one.", collection_name)
             return self.client.create_collection(
-                name=self.collection_name,
+                name=collection_name,
                 metadata={"hnsw:space": self.distance_metric},
             )
 
@@ -72,15 +80,12 @@ class VectorIndexer:
         if not texts:
             return []
 
-        batch_size = getattr(self, "batch_size", 32)
-        normalize_embeddings = getattr(self, "normalize_embeddings", True)
-
         embeddings = self.embedding_model.encode(
             texts,
-            batch_size=batch_size,
+            batch_size=self.batch_size,
             convert_to_numpy=True,
             show_progress_bar=False,
-            normalize_embeddings=normalize_embeddings,
+            normalize_embeddings=self.normalize_embeddings,
         )
 
         if hasattr(embeddings, "tolist"):
@@ -103,13 +108,11 @@ class VectorIndexer:
         document_language: Optional[str] = None,
         extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        pipeline_version = getattr(self, "pipeline_version", "1.0.0")
-
         metadata: Dict[str, Any] = {
             "video_name": video_name,
             "content_type": content_type,
             "source_modality": source_modality,
-            "pipeline_version": pipeline_version,
+            "pipeline_version": self.pipeline_version,
         }
 
         optional_fields = {
@@ -149,13 +152,8 @@ class VectorIndexer:
         captions_data: List[Dict[str, Any]],
         min_time_gap_sec: float = 10.0,
     ) -> List[Dict[str, Any]]:
-        """
-        Deduplicate captions within the same video by normalized text and nearby timestamp.
-        Keep the earliest caption when the same normalized caption appears repeatedly
-        in a short time window.
-        """
         deduped: List[Dict[str, Any]] = []
-        last_seen_by_video_and_text: Dict[tuple[str, str], float] = {}
+        last_seen_by_video_and_text: Dict[Tuple[str, str], float] = {}
 
         sorted_captions = sorted(
             captions_data,
@@ -207,33 +205,45 @@ class VectorIndexer:
 
     def delete_video_data(self, video_name: str) -> int:
         logger.info("Deleting existing indexed data for video: %s", video_name)
-        try:
-            results = self.collection.get(where={"video_name": video_name})
-            ids = results.get("ids", []) if results else []
-            if ids:
-                self.collection.delete(ids=ids)
-                logger.info("Deleted %d records for video '%s'", len(ids), video_name)
-            return len(ids)
-        except Exception as e:
-            logger.warning("Could not delete old data for '%s': %s", video_name, e)
-            return 0
+        total_deleted = 0
 
-    def _safe_collection_get(self, **kwargs) -> Dict[str, Any]:
-        data = self.collection.get(**kwargs)
+        for collection in [self.text_collection, self.clip_collection]:
+            try:
+                results = collection.get(where={"video_name": video_name})
+                ids = results.get("ids", []) if results else []
+                if ids:
+                    collection.delete(ids=ids)
+                    total_deleted += len(ids)
+            except Exception as e:
+                logger.warning("Could not delete old data for '%s': %s", video_name, e)
+
+        logger.info("Deleted %d total records for '%s'", total_deleted, video_name)
+        return total_deleted
+
+    def _safe_collection_get(self, collection, **kwargs) -> Dict[str, Any]:
+        data = collection.get(**kwargs)
         return data or {}
+
+    def _collect_all_metadatas(self) -> List[Dict[str, Any]]:
+        all_metadatas: List[Dict[str, Any]] = []
+
+        for collection in [self.text_collection, self.clip_collection]:
+            try:
+                data = self._safe_collection_get(collection, include=["metadatas"])
+                metadatas = data.get("metadatas", []) or []
+                all_metadatas.extend([m for m in metadatas if isinstance(m, dict)])
+            except Exception as e:
+                logger.warning("Could not collect metadata from collection: %s", e)
+
+        return all_metadatas
 
     def list_videos(self) -> List[str]:
         try:
-            data = self._safe_collection_get(include=["metadatas"])
-            metadatas = data.get("metadatas", []) or []
             names = set()
-
-            for meta in metadatas:
-                if isinstance(meta, dict):
-                    video_name = (meta.get("video_name") or "").strip()
-                    if video_name:
-                        names.add(video_name)
-
+            for meta in self._collect_all_metadatas():
+                video_name = (meta.get("video_name") or "").strip()
+                if video_name:
+                    names.add(video_name)
             return sorted(names)
         except Exception as e:
             logger.error("Failed to list videos: %s", e)
@@ -245,12 +255,17 @@ class VectorIndexer:
             raise ValueError("video_name must not be empty")
 
         try:
-            data = self._safe_collection_get(
-                where={"video_name": video_name},
-                include=["metadatas"],
-            )
-            metadatas = data.get("metadatas", []) or []
-            ids = data.get("ids", []) or []
+            metadatas: List[Dict[str, Any]] = []
+            total_ids = 0
+
+            for collection in [self.text_collection, self.clip_collection]:
+                data = self._safe_collection_get(
+                    collection,
+                    where={"video_name": video_name},
+                    include=["metadatas"],
+                )
+                metadatas.extend(data.get("metadatas", []) or [])
+                total_ids += len(data.get("ids", []) or [])
 
             content_type_counts = {
                 "transcription": 0,
@@ -302,9 +317,7 @@ class VectorIndexer:
                 if start_time is not None:
                     try:
                         start_time = float(start_time)
-                        min_start_time = (
-                            start_time if min_start_time is None else min(min_start_time, start_time)
-                        )
+                        min_start_time = start_time if min_start_time is None else min(min_start_time, start_time)
                     except Exception:
                         pass
 
@@ -312,16 +325,14 @@ class VectorIndexer:
                 if end_time is not None:
                     try:
                         end_time = float(end_time)
-                        max_end_time = (
-                            end_time if max_end_time is None else max(max_end_time, end_time)
-                        )
+                        max_end_time = end_time if max_end_time is None else max(max_end_time, end_time)
                     except Exception:
                         pass
 
             return {
                 "video_name": video_name,
-                "exists": len(ids) > 0,
-                "total_records": len(ids),
+                "exists": total_ids > 0,
+                "total_records": total_ids,
                 "content_type_counts": content_type_counts,
                 "source_modality_counts": source_modality_counts,
                 "languages": sorted(languages),
@@ -341,7 +352,6 @@ class VectorIndexer:
         try:
             videos = self.list_videos()
             items = [self.get_video_inventory(video_name) for video_name in videos]
-
             return {
                 "total_videos": len(videos),
                 "videos": items,
@@ -368,12 +378,10 @@ class VectorIndexer:
             return []
 
         chunks: List[Dict[str, Any]] = []
-        segment_window = getattr(self, "segment_window", 3)
-        segment_overlap = getattr(self, "segment_overlap", 1)
-        step = max(1, segment_window - segment_overlap)
+        step = max(1, self.segment_window - self.segment_overlap)
 
         for i in range(0, len(cleaned), step):
-            group = cleaned[i : i + segment_window]
+            group = cleaned[i : i + self.segment_window]
             if not group:
                 continue
 
@@ -386,7 +394,7 @@ class VectorIndexer:
                 }
             )
 
-            if i + segment_window >= len(cleaned):
+            if i + self.segment_window >= len(cleaned):
                 break
 
         return chunks
@@ -398,16 +406,16 @@ class VectorIndexer:
         end_time: float,
     ) -> List[str]:
         matched: List[str] = []
-        window_sec = getattr(self, "caption_merge_window_sec", 3.0)
 
         for item in captions_data:
             ts = safe_float(item.get("timestamp"), -1.0)
             if ts < 0:
                 continue
-            if (start_time - window_sec) <= ts <= (end_time + window_sec):
+            if (start_time - self.caption_merge_window_sec) <= ts <= (end_time + self.caption_merge_window_sec):
                 caption = (item.get("caption") or "").strip()
                 if caption:
                     matched.append(caption)
+
         return matched
 
     def index_transcriptions(self, transcription_data: Dict[str, Any]) -> int:
@@ -466,7 +474,7 @@ class VectorIndexer:
             return 0
 
         embeddings = self._embed_texts(texts)
-        self.collection.upsert(
+        self.text_collection.upsert(
             ids=ids,
             documents=texts,
             embeddings=embeddings,
@@ -480,11 +488,18 @@ class VectorIndexer:
         captions_data = self._deduplicate_caption_records(captions_data, min_time_gap_sec=10.0)
 
         texts: List[str] = []
-        metadatas: List[Dict[str, Any]] = []
-        ids: List[str] = []
+        text_metadatas: List[Dict[str, Any]] = []
+        text_ids: List[str] = []
+
+        clip_documents: List[str] = []
+        clip_metadatas: List[Dict[str, Any]] = []
+        clip_ids: List[str] = []
+        clip_embeddings: List[List[float]] = []
 
         for item in captions_data:
             caption = (item.get("caption") or "").strip()
+            clip_embedding = item.get("clip_embedding")
+
             if not caption:
                 continue
 
@@ -493,50 +508,80 @@ class VectorIndexer:
             image_path = item.get("image_path")
             timestamp = safe_float(item.get("timestamp"), 0.0)
 
-            payload = {
+            base_meta = self._base_metadata(
+                video_name=video_name,
+                content_type="caption",
+                source_modality="image",
+                model_name=item.get("blip_model_name"),
+                timestamp=timestamp,
+                frame_name=frame_name,
+                image_path=image_path,
+                document_language=item.get("language", "en"),
+                extra={
+                    "clip_model_name": item.get("clip_model_name"),
+                    "embedding_source": "blip_caption+clip_image",
+                },
+            )
+
+            text_payload = {
                 "video_name": video_name,
-                "type": "caption",
+                "type": "caption_text",
                 "frame_name": frame_name,
                 "timestamp": timestamp,
                 "caption": caption,
             }
 
-            ids.append(self._stable_id("caption", payload))
+            text_ids.append(self._stable_id("caption_text", text_payload))
             texts.append(caption)
-            metadatas.append(
-                self._base_metadata(
-                    video_name=video_name,
-                    content_type="caption",
-                    source_modality="image",
-                    model_name=item.get("model_name"),
-                    timestamp=timestamp,
-                    frame_name=frame_name,
-                    image_path=image_path,
-                    document_language=item.get("language", "en"),
-                )
+            text_metadatas.append(base_meta)
+
+            if clip_embedding:
+                clip_payload = {
+                    "video_name": video_name,
+                    "type": "caption_clip",
+                    "frame_name": frame_name,
+                    "timestamp": timestamp,
+                    "caption": caption,
+                }
+                clip_ids.append(self._stable_id("caption_clip", clip_payload))
+                clip_documents.append(caption)
+                clip_metadatas.append(base_meta)
+                clip_embeddings.append(clip_embedding)
+
+        total_records = 0
+
+        if texts:
+            text_embeddings = self._embed_texts(texts)
+            self.text_collection.upsert(
+                ids=text_ids,
+                documents=texts,
+                embeddings=text_embeddings,
+                metadatas=text_metadatas,
             )
+            total_records += len(text_ids)
 
-        if not texts:
-            logger.warning("No captions to index.")
-            return 0
+        if clip_ids:
+            self.clip_collection.upsert(
+                ids=clip_ids,
+                documents=clip_documents,
+                embeddings=clip_embeddings,
+                metadatas=clip_metadatas,
+            )
+            total_records += len(clip_ids)
 
-        embeddings = self._embed_texts(texts)
-        self.collection.upsert(
-            ids=ids,
-            documents=texts,
-            embeddings=embeddings,
-            metadatas=metadatas,
+        logger.info(
+            "Indexed %d caption-text records and %d caption-clip records",
+            len(text_ids),
+            len(clip_ids),
         )
-
-        logger.info("Indexed %d deduplicated caption records", len(ids))
-        return len(ids)
+        return total_records
 
     def index_multimodal_documents(
         self,
         transcription_data: Dict[str, Any],
         captions_data: List[Dict[str, Any]],
     ) -> int:
-        if not getattr(self, "enable_multimodal_documents", True):
+        if not self.enable_multimodal_documents:
             return 0
 
         video_name = transcription_data["video_name"]
@@ -592,7 +637,7 @@ class VectorIndexer:
             return 0
 
         embeddings = self._embed_texts(texts)
-        self.collection.upsert(
+        self.text_collection.upsert(
             ids=ids,
             documents=texts,
             embeddings=embeddings,
@@ -604,10 +649,13 @@ class VectorIndexer:
 
     def get_stats(self) -> Dict[str, Any]:
         try:
-            count = self.collection.count()
+            text_count = self.text_collection.count()
+            clip_count = self.clip_collection.count()
             return {
-                "collection_name": self.collection_name,
-                "total_documents": count,
+                "text_collection_name": self.text_collection_name,
+                "clip_collection_name": self.clip_collection_name,
+                "text_total_documents": text_count,
+                "clip_total_documents": clip_count,
                 "persist_dir": str(self.persist_dir),
                 "embedding_model": self.embedding_model_name,
                 "distance_metric": self.distance_metric,

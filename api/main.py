@@ -47,6 +47,25 @@ class ProcessVideoRequest(BaseModel):
     reset_index: bool = False
 
 
+def _format_search_result(result: dict) -> dict:
+    similarity_score = result.get("similarity_score")
+    if similarity_score is None and "relevance" in result:
+        similarity_score = result.get("relevance")
+
+    return {
+        "document": result.get("document"),
+        "display_text": result.get("display_text"),
+        "display_caption": result.get("display_caption"),
+        "nearby_speech_context": result.get("nearby_speech_context"),
+        "group_size": result.get("group_size"),
+        "event_time_range": result.get("event_time_range"),
+        "metadata": result.get("metadata"),
+        "distance": result.get("distance"),
+        "similarity_score": similarity_score,
+        "score_type": result.get("score_type", "legacy_or_unspecified"),
+    }
+
+
 @app.get("/")
 def root():
     return {
@@ -143,6 +162,7 @@ def delete_video(video_name: str):
 @app.post("/search")
 def search(request: SearchRequest):
     query = request.query.strip()
+
     if not query:
         raise HTTPException(status_code=400, detail="Query must not be empty")
 
@@ -158,22 +178,7 @@ def search(request: SearchRequest):
             video_name=request.video_name.strip() if request.video_name else None,
         )
 
-        formatted = []
-        for r in results:
-            similarity_score = r.get("similarity_score")
-            if similarity_score is None and "relevance" in r:
-                similarity_score = r.get("relevance")
-
-            formatted.append(
-                {
-                    "document": r.get("document"),
-                    "metadata": r.get("metadata"),
-                    "distance": r.get("distance"),
-                    "similarity_score": similarity_score,
-                    "score_type": r.get("score_type", "legacy_or_unspecified"),
-                }
-            )
-
+        formatted = [_format_search_result(r) for r in results]
         return {"results": formatted}
     except HTTPException:
         raise

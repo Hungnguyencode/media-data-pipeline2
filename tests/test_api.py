@@ -11,14 +11,14 @@ class FakeSearchEngine:
             {
                 "document": "artificial intelligence introduction",
                 "metadata": {
-                    "video_name": "demo.mp4",
-                    "content_type": "transcription",
+                    "video_name": video_name or "demo.mp4",
+                    "content_type": content_type or "transcription",
                     "timestamp": 1.23,
                     "timestamp_str": "00:00:01",
                 },
                 "distance": 0.1,
                 "relevance": 0.9,
-                "score_type": "similarity_proxy_from_distance",
+                "score_type": "hybrid_fusion",
             }
         ]
 
@@ -26,12 +26,14 @@ class FakeSearchEngine:
 class FakeVectorIndexer:
     def get_stats(self):
         return {
-            "collection_name": "video_semantic_search",
-            "total_documents": 10,
+            "text_collection_name": "video_semantic_search_text",
+            "clip_collection_name": "video_semantic_search_clip",
+            "text_total_documents": 10,
+            "clip_total_documents": 4,
             "persist_dir": "data/vector_db",
             "embedding_model": "fake-model",
             "distance_metric": "cosine",
-            "pipeline_version": "1.2.0",
+            "pipeline_version": "2.0.0",
         }
 
     def list_videos(self):
@@ -76,7 +78,7 @@ class FakeVectorIndexer:
                 "audio+image": 1,
             },
             "languages": ["en", "vi", "vi+en"],
-            "pipeline_versions": ["1.2.0"],
+            "pipeline_versions": ["2.0.0"],
             "time_range": {
                 "min_timestamp": 0.0,
                 "max_timestamp": 12.0,
@@ -156,8 +158,10 @@ def test_stats():
     response = client.get("/stats")
     assert response.status_code == 200
     data = response.json()
-    assert data["collection_name"] == "video_semantic_search"
-    assert data["total_documents"] == 10
+    assert data["text_collection_name"] == "video_semantic_search_text"
+    assert data["clip_collection_name"] == "video_semantic_search_clip"
+    assert data["text_total_documents"] == 10
+    assert data["clip_total_documents"] == 4
 
 
 def test_list_videos():
@@ -222,7 +226,8 @@ def test_search_success():
     assert "results" in data
     assert len(data["results"]) == 1
     assert data["results"][0]["document"] == "artificial intelligence introduction"
-    assert data["results"][0]["score_type"] == "similarity_proxy_from_distance"
+    assert data["results"][0]["score_type"] == "hybrid_fusion"
+    assert data["results"][0]["similarity_score"] == 0.9
 
 
 def test_search_rejects_empty_query():

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from main_pipeline import MediaDataPipeline
 
 
@@ -39,9 +41,15 @@ class FakeVisionProcessor:
                 "caption": "A person giving a presentation",
                 "timestamp": 1.0,
                 "timestamp_str": "00:00:01",
-                "model_name": "blip-base",
+                "blip_model_name": "blip-base",
+                "clip_model_name": "ViT-B-32:openai",
+                "clip_embedding": [0.1, 0.2, 0.3],
+                "language": "en",
             }
         ]
+
+    def encode_text_for_clip(self, texts):
+        return [[0.9, 0.8, 0.7] for _ in texts]
 
     def unload_model(self):
         return None
@@ -55,13 +63,17 @@ class FakeVectorIndexer:
         return 3
 
     def index_captions(self, captions_data):
-        return 1
+        return 2
 
     def index_multimodal_documents(self, transcription_data, captions_data):
         return 1
 
 
 class FakeSearchEngine:
+    def __init__(self, config=None, vector_indexer=None, vision_processor=None):
+        self.vector_indexer = vector_indexer
+        self.vision_processor = vision_processor
+
     def search(self, query, top_k=5, content_type=None, video_name=None):
         return []
 
@@ -75,7 +87,7 @@ class DummyMediaDataPipeline(MediaDataPipeline):
                 "processed_dir": str(tmp_path / "processed"),
             },
             "pipeline": {
-                "version": "1.2.0",
+                "version": "2.0.0",
                 "save_run_metadata": True,
             },
             "models": {
@@ -83,16 +95,19 @@ class DummyMediaDataPipeline(MediaDataPipeline):
             },
         }
 
-        from pathlib import Path
         self.audio_extractor = FakeAudioExtractor()
         self.frame_extractor = FakeFrameExtractor()
         self.whisper_processor = FakeWhisperProcessor()
         self.vision_processor = FakeVisionProcessor()
         self.vector_indexer = FakeVectorIndexer()
-        self.search_engine = FakeSearchEngine()
+        self.search_engine = FakeSearchEngine(
+            config=self.config,
+            vector_indexer=self.vector_indexer,
+            vision_processor=self.vision_processor,
+        )
         self.processed_dir = Path(self.config["paths"]["processed_dir"])
         self.processed_dir.mkdir(parents=True, exist_ok=True)
-        self.pipeline_version = "1.2.0"
+        self.pipeline_version = "2.0.0"
         self.save_run_metadata = True
 
 
@@ -108,7 +123,7 @@ def test_process_video_returns_expected_summary(tmp_path):
     assert result["audio_path"] == "data/interim/audio/demo.wav"
     assert result["frames_dir"] == "data/interim/frames/demo"
     assert result["transcription_records"] == 3
-    assert result["caption_records"] == 1
+    assert result["caption_records"] == 2
     assert result["multimodal_records"] == 1
     assert result["stage_status"]["extract_audio"] == "done"
     assert result["stage_status"]["extract_frames"] == "done"
@@ -117,3 +132,4 @@ def test_process_video_returns_expected_summary(tmp_path):
     assert result["stage_status"]["index"] == "done"
     assert result["merged_output_path"] is not None
     assert result["run_metadata_path"] is not None
+    assert result["data_summary"]["indexed_total_records"] == 6

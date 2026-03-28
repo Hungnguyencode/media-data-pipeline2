@@ -22,7 +22,9 @@ models:
     fallback_to_cpu_on_oom: true
 
   vision:
-    name: "Salesforce/blip-image-captioning-base"
+    blip_name: "Salesforce/blip-image-captioning-base"
+    clip_name: "ViT-B-32"
+    clip_pretrained: "openai"
     max_length: 40
     image_size: 384
     fallback_to_cpu_on_oom: true
@@ -34,7 +36,7 @@ models:
     normalize_embeddings: true
 
 pipeline:
-  version: "1.2.0"
+  version: "2.0.0"
   segment_window: 3
   segment_overlap: 1
   caption_merge_window_sec: 3.0
@@ -42,9 +44,13 @@ pipeline:
   save_run_metadata: true
   max_top_k: 50
   default_top_k: 5
+  hybrid_search_alpha: 0.6
+  clip_search_beta: 0.4
+  hybrid_candidate_multiplier: 3
 
 vector_db:
-  collection_name: "video_semantic_search"
+  text_collection_name: "video_semantic_search_text"
+  clip_collection_name: "video_semantic_search_clip"
   distance_metric: "cosine"
   export_batch_size: 1000
 

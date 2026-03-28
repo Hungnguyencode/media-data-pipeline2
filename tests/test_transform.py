@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-import pytest
+from PIL import Image
 
 from src.transform.vision_processor import VisionProcessor
 from src.transform.whisper_processor import WhisperProcessor
@@ -12,32 +12,52 @@ class DummyVisionProcessor(VisionProcessor):
         self.config = {
             "models": {
                 "vision": {
-                    "name": "fake-blip",
+                    "blip_name": "fake-blip",
+                    "clip_name": "ViT-B-32",
+                    "clip_pretrained": "openai",
                     "max_length": 40,
                     "image_size": 384,
                     "fallback_to_cpu_on_oom": True,
+                    "output_language": "en",
                 }
             },
             "paths": {
                 "interim_captions_dir": str(tmp_path / "interim_captions"),
                 "processed_dir": str(tmp_path / "processed"),
             },
+            "pipeline": {
+                "version": "2.0.0",
+            },
         }
         self.device = "cpu"
-        self.model_name = "fake-blip"
+        self.blip_name = "fake-blip"
+        self.clip_name = "ViT-B-32"
+        self.clip_pretrained = "openai"
         self.max_length = 40
         self.image_size = 384
+        self.output_language = "en"
         self.fallback_to_cpu_on_oom = True
-        self.processor = None
-        self.model = None
-        self.pipeline_version = "1.2.0"
+        self.pipeline_version = "2.0.0"
+
+        self.blip_processor = object()
+        self.blip_model = object()
+        self.clip_model = object()
+        self.clip_preprocess = None
+        self.clip_tokenizer = None
+
         self.output_dir = tmp_path / "interim_captions"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.processed_dir = tmp_path / "processed"
         self.processed_dir.mkdir(parents=True, exist_ok=True)
 
-    def generate_caption(self, image_path: str) -> str:
+    def _load_models(self, device=None):
+        return None
+
+    def _generate_caption_once(self, image):
         return "a person giving a presentation"
+
+    def _encode_image_clip_once(self, image):
+        return [0.1, 0.2, 0.3]
 
 
 class DummyWhisperProcessor(WhisperProcessor):
@@ -55,13 +75,16 @@ class DummyWhisperProcessor(WhisperProcessor):
                 "interim_transcripts_dir": str(tmp_path / "interim_transcripts"),
                 "processed_dir": str(tmp_path / "processed"),
             },
+            "pipeline": {
+                "version": "2.0.0",
+            },
         }
         self.device = "cpu"
         self.model_name = "base"
         self.language = "vi"
         self.use_fp16 = False
         self.fallback_to_cpu_on_oom = True
-        self.pipeline_version = "1.2.0"
+        self.pipeline_version = "2.0.0"
         self.output_dir = tmp_path / "interim_transcripts"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.processed_dir = tmp_path / "processed"
@@ -87,7 +110,7 @@ def test_vision_processor_process_frames(tmp_path):
     frames_dir.mkdir(parents=True, exist_ok=True)
 
     frame_path = frames_dir / "frame_0001_1.00s.jpg"
-    frame_path.write_bytes(b"fake-image-data")
+    Image.new("RGB", (64, 64), color="white").save(frame_path)
 
     processor = DummyVisionProcessor(tmp_path)
     results = processor.process_frames(str(frames_dir), "demo.mp4")
@@ -97,6 +120,8 @@ def test_vision_processor_process_frames(tmp_path):
     assert results[0]["frame_name"] == "frame_0001_1.00s.jpg"
     assert results[0]["caption"] == "A person giving a presentation"
     assert results[0]["timestamp"] == 1.0
+    assert results[0]["clip_embedding"] == [0.1, 0.2, 0.3]
+    assert results[0]["clip_model_name"] == "ViT-B-32:openai"
 
     interim_file = tmp_path / "interim_captions" / "demo_captions.json"
     processed_file = tmp_path / "processed" / "demo_captions_processed.json"
