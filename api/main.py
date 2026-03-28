@@ -230,13 +230,7 @@ def upload_video(
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     save_path = upload_dir / safe_name
-    if save_path.exists():
-        stem = save_path.stem
-        ext = save_path.suffix
-        counter = 1
-        while save_path.exists():
-            save_path = upload_dir / f"{stem}_{counter}{ext}"
-            counter += 1
+    already_exists = save_path.exists()
 
     try:
         with save_path.open("wb") as f:
@@ -244,9 +238,15 @@ def upload_video(
 
         pipeline = get_pipeline()
         result = pipeline.process_video(str(save_path), reset_index=reset_index)
+
         return {
             "uploaded_path": str(save_path),
             "result": result,
+            "message": (
+                f"Uploaded and processed '{safe_name}'. Existing file was overwritten."
+                if already_exists
+                else f"Uploaded and processed '{safe_name}'."
+            ),
         }
     except HTTPException:
         raise

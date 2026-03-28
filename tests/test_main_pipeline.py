@@ -59,13 +59,16 @@ class FakeVectorIndexer:
     def delete_video_data(self, video_name):
         return 0
 
-    def index_transcriptions(self, transcription_data):
+    def index_transcriptions(self, transcription_data, video_source_info=None):
+        assert video_source_info is not None
         return 3
 
-    def index_captions(self, captions_data):
+    def index_captions(self, captions_data, video_source_info=None):
+        assert video_source_info is not None
         return 2
 
-    def index_multimodal_documents(self, transcription_data, captions_data):
+    def index_multimodal_documents(self, transcription_data, captions_data, video_source_info=None):
+        assert video_source_info is not None
         return 1
 
 
@@ -85,6 +88,7 @@ class DummyMediaDataPipeline(MediaDataPipeline):
         self.config = {
             "paths": {
                 "processed_dir": str(tmp_path / "processed"),
+                "video_catalog_path": str(tmp_path / "video_catalog.json"),
             },
             "pipeline": {
                 "version": "2.0.0",
@@ -94,6 +98,27 @@ class DummyMediaDataPipeline(MediaDataPipeline):
                 "whisper": {"language": "vi", "name": "base"},
             },
         }
+
+        catalog_path = Path(self.config["paths"]["video_catalog_path"])
+        catalog_path.write_text(
+            """
+[
+  {
+    "video_name": "demo.mp4",
+    "local_video_path": "data/raw/demo.mp4",
+    "source_platform": "youtube",
+    "source_url": "https://youtube.com/example",
+    "title": "Demo Video",
+    "description": "A demo video for testing.",
+    "thumbnail_url": "",
+    "tags": ["demo", "test"],
+    "created_at": "2026-03-27T00:00:00",
+    "ingested_at": "2026-03-27T00:00:00"
+  }
+]
+""".strip(),
+            encoding="utf-8",
+        )
 
         self.audio_extractor = FakeAudioExtractor()
         self.frame_extractor = FakeFrameExtractor()
@@ -133,3 +158,24 @@ def test_process_video_returns_expected_summary(tmp_path):
     assert result["merged_output_path"] is not None
     assert result["run_metadata_path"] is not None
     assert result["data_summary"]["indexed_total_records"] == 6
+
+    assert result["video_source_info"]["source_platform"] == "youtube"
+    assert result["video_source_info"]["source_url"] == "https://youtube.com/example"
+    assert result["video_source_info"]["video_title"] == "Demo Video"
+
+    merged_output_path = Path(result["merged_output_path"])
+    run_metadata_path = Path(result["run_metadata_path"])
+
+    assert merged_output_path.exists()
+    assert run_metadata_path.exists()
+
+    merged_text = merged_output_path.read_text(encoding="utf-8")
+    run_text = run_metadata_path.read_text(encoding="utf-8")
+
+    assert "youtube" in merged_text
+    assert "https://youtube.com/example" in merged_text
+    assert "Demo Video" in merged_text
+
+    assert "youtube" in run_text
+    assert "https://youtube.com/example" in run_text
+    assert "Demo Video" in run_text

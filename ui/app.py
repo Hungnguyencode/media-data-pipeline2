@@ -133,6 +133,47 @@ def shorten_text(text: str, max_chars: int = 260) -> str:
     return text[:max_chars].rstrip() + "..."
 
 
+def parse_video_tags(value: object) -> list[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        return [str(tag).strip() for tag in value if str(tag).strip()]
+
+    raw = str(value).strip()
+    if not raw:
+        return []
+
+    if "|" in raw:
+        return [part.strip() for part in raw.split("|") if part.strip()]
+
+    if "," in raw:
+        return [part.strip() for part in raw.split(",") if part.strip()]
+
+    return [raw]
+
+
+def show_source_info_block(meta: dict):
+    source_platform = meta.get("source_platform")
+    source_url = meta.get("source_url")
+    video_title = meta.get("video_title")
+    video_description = meta.get("video_description")
+    video_tags = parse_video_tags(meta.get("video_tags"))
+
+    if video_title:
+        st.write("Title:", video_title)
+    if source_platform:
+        st.write("Source platform:", source_platform)
+    if video_tags:
+        st.write("Tags:")
+        for tag in video_tags:
+            st.markdown(f"- {tag}")
+    if video_description:
+        st.caption(shorten_text(video_description, max_chars=220))
+    if source_url:
+        st.markdown(f"[Mở link nguồn]({source_url})")
+
+
 API_BASE = load_api_base()
 
 SAMPLE_QUERIES = [
@@ -361,6 +402,9 @@ with tab1:
                         if result.get("group_size") is not None:
                             st.write("Nearby matched frames grouped:", result.get("group_size"))
 
+                        st.markdown("**Nguồn video**")
+                        show_source_info_block(meta)
+
                         with st.expander("Xem toàn bộ nội dung gốc"):
                             st.write(raw_doc_text)
 
@@ -413,7 +457,14 @@ with tab2:
                 st.session_state["last_processed_video_name"] = video_name
 
                 st.success("Upload và xử lý video thành công")
+                if result.get("message"):
+                    st.info(result["message"])
                 st.json(result)
+
+                source_info = process_result.get("video_source_info") or {}
+                if source_info:
+                    st.markdown("### Nguồn video")
+                    show_source_info_block(source_info)
 
                 if video_name:
                     show_video_preview(video_name, title="Video vừa upload và xử lý")
@@ -455,6 +506,11 @@ with tab3:
                 st.success("Xử lý video thành công")
                 st.json(result)
 
+                source_info = result.get("video_source_info") or {}
+                if source_info:
+                    st.markdown("### Nguồn video")
+                    show_source_info_block(source_info)
+
                 if result.get("video_name"):
                     show_video_preview(result.get("video_name"), title="Video vừa xử lý")
             except Exception as e:
@@ -481,7 +537,12 @@ with tab4:
             st.info("Hiện chưa có video nào trong kho dữ liệu vector.")
         else:
             for item in videos_inventory:
-                with st.expander(f"{item.get('video_name')} | {item.get('total_records', 0)} records"):
+                source_info = item.get("source_info", {}) or {}
+                title = source_info.get("video_title") or item.get("video_name")
+                with st.expander(f"{title} | {item.get('total_records', 0)} records"):
+                    if source_info:
+                        st.markdown("### Nguồn video")
+                        show_source_info_block(source_info)
                     st.json(item)
 
     st.divider()
@@ -534,5 +595,9 @@ with tab4:
             if detail.get("error"):
                 st.error(f"Lỗi: {detail['error']}")
             else:
+                source_info = detail.get("source_info", {}) or {}
+                if source_info:
+                    st.markdown("### Nguồn video")
+                    show_source_info_block(source_info)
                 st.json(detail)
                 show_video_preview(inspect_video_name, title="Video đang xem chi tiết")

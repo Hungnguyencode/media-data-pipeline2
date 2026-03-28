@@ -8,12 +8,13 @@ import logging.config
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 import torch
 import yaml
 
 _CONFIG_CACHE: Optional[Dict[str, Any]] = None
+_VIDEO_CATALOG_CACHE: Optional[List[Dict[str, Any]]] = None
 
 
 def get_project_root() -> Path:
@@ -42,6 +43,59 @@ def get_config(force_reload: bool = False) -> Dict[str, Any]:
 
 def reload_config() -> Dict[str, Any]:
     return get_config(force_reload=True)
+
+
+def get_video_catalog_path(config: Optional[Dict[str, Any]] = None) -> Path:
+    cfg = config or get_config()
+    relative_path = cfg.get("paths", {}).get("video_catalog_path", "data/video_catalog.json")
+    return get_data_path(relative_path)
+
+
+def load_video_catalog(
+    force_reload: bool = False,
+    config: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    global _VIDEO_CATALOG_CACHE
+
+    if _VIDEO_CATALOG_CACHE is not None and not force_reload:
+        return _VIDEO_CATALOG_CACHE
+
+    catalog_path = get_video_catalog_path(config)
+    if not catalog_path.exists():
+        _VIDEO_CATALOG_CACHE = []
+        return _VIDEO_CATALOG_CACHE
+
+    with open(catalog_path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    if not isinstance(raw, list):
+        raise ValueError(f"Video catalog must be a list, got: {type(raw)}")
+
+    cleaned: List[Dict[str, Any]] = []
+    for item in raw:
+        if isinstance(item, dict):
+            cleaned.append(item)
+
+    _VIDEO_CATALOG_CACHE = cleaned
+    return _VIDEO_CATALOG_CACHE
+
+
+def get_video_catalog_entry(
+    video_name: str,
+    force_reload: bool = False,
+    config: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    target = (video_name or "").strip()
+    if not target:
+        return None
+
+    catalog = load_video_catalog(force_reload=force_reload, config=config)
+    for item in catalog:
+        name = str(item.get("video_name", "")).strip()
+        if name == target:
+            return dict(item)
+
+    return None
 
 
 def normalize_device(device: Any = None) -> torch.device:

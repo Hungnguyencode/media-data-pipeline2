@@ -34,6 +34,7 @@ data/*
 !data/processed/.gitkeep
 !data/vector_db/
 !data/vector_db/.gitkeep
+!data/video_catalog.json
 
 # Ignore actual contents in data subfolders
 data/raw/*
