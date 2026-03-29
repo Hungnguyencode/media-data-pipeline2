@@ -7,11 +7,13 @@ import logging
 import logging.config
 import time
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
 import torch
 import yaml
+
 
 _CONFIG_CACHE: Optional[Dict[str, Any]] = None
 _VIDEO_CATALOG_CACHE: Optional[List[Dict[str, Any]]] = None
@@ -80,6 +82,27 @@ def load_video_catalog(
     return _VIDEO_CATALOG_CACHE
 
 
+def save_video_catalog(
+    catalog: List[Dict[str, Any]],
+    config: Optional[Dict[str, Any]] = None,
+) -> Path:
+    global _VIDEO_CATALOG_CACHE
+
+    catalog_path = get_video_catalog_path(config)
+    catalog_path.parent.mkdir(parents=True, exist_ok=True)
+
+    cleaned: List[Dict[str, Any]] = []
+    for item in catalog:
+        if isinstance(item, dict):
+            cleaned.append(item)
+
+    with open(catalog_path, "w", encoding="utf-8") as f:
+        json.dump(cleaned, f, ensure_ascii=False, indent=2)
+
+    _VIDEO_CATALOG_CACHE = cleaned
+    return catalog_path
+
+
 def get_video_catalog_entry(
     video_name: str,
     force_reload: bool = False,
@@ -96,6 +119,143 @@ def get_video_catalog_entry(
             return dict(item)
 
     return None
+
+
+def _now_iso_string() -> str:
+    return datetime.now().replace(microsecond=0).isoformat()
+
+
+def _normalize_catalog_tags(tags: Any) -> List[str]:
+    if tags is None:
+        return []
+
+    if isinstance(tags, list):
+        return [str(tag).strip() for tag in tags if str(tag).strip()]
+
+    raw = str(tags).strip()
+    if not raw:
+        return []
+
+    if "|" in raw:
+        return [part.strip() for part in raw.split("|") if part.strip()]
+
+    if "," in raw:
+        return [part.strip() for part in raw.split(",") if part.strip()]
+
+    return [raw]
+
+
+def _to_project_relative_path(path_value: str | Path) -> str:
+    path_obj = Path(path_value).resolve()
+    project_root = get_project_root().resolve()
+
+    try:
+        return str(path_obj.relative_to(project_root)).replace("\\", "/")
+    except Exception:
+        return str(path_obj).replace("\\", "/")
+
+
+def build_auto_video_catalog_entry(
+    video_path: str,
+    source_url: str = "",
+    source_platform: str = "local",
+    existing_entry: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    video_file = Path(video_path).resolve()
+    video_name = video_file.name
+    stem_title = video_file.stem.replace("_", " ").replace("-", " ").strip()
+    now_iso = _now_iso_string()
+
+    existing = existing_entry or {}
+
+    existing_tags = _normalize_catalog_tags(existing.get("tags"))
+    created_at = str(existing.get("created_at", "")).strip() or now_iso
+
+    entry = {
+        "video_name": video_name,
+        "local_video_path": _to_project_relative_path(video_file),
+        "source_platform": str(existing.get("source_platform", "")).strip()
+        or str(source_platform).strip()
+        or "local",
+        "source_url": str(existing.get("source_url", "")).strip() or str(source_url).strip(),
+        "title": str(existing.get("title", "")).strip() or stem_title or video_name,
+        "description": str(existing.get("description", "")).strip(),
+        "thumbnail_url": str(existing.get("thumbnail_url", "")).strip(),
+        "tags": existing_tags,
+        "created_at": created_at,
+        "ingested_at": now_iso,
+    }
+
+    return entry
+
+
+def upsert_video_catalog_entry(
+    entry: Dict[str, Any],
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    if not isinstance(entry, dict):
+        raise TypeError("entry must be a dict")
+
+    video_name = str(entry.get("video_name", "")).strip()
+    if not video_name:
+        raise ValueError("Catalog entry must include a non-empty video_name")
+
+    catalog = load_video_catalog(force_reload=True, config=config)
+    updated_catalog: List[Dict[str, Any]] = []
+    replaced = False
+
+    for item in catalog:
+        existing_name = str(item.get("video_name", "")).strip()
+        if existing_name == video_name:
+            merged = dict(item)
+            merged.update(entry)
+
+            if not merged.get("created_at"):
+                merged["created_at"] = item.get("created_at") or _now_iso_string()
+            if "tags" in merged:
+                merged["tags"] = _normalize_catalog_tags(merged.get("tags"))
+
+            updated_catalog.append(merged)
+            replaced = True
+        else:
+            updated_catalog.append(item)
+
+    if not replaced:
+        new_entry = dict(entry)
+        new_entry["tags"] = _normalize_catalog_tags(new_entry.get("tags"))
+        updated_catalog.append(new_entry)
+
+    save_video_catalog(updated_catalog, config=config)
+
+    saved_entry = get_video_catalog_entry(
+        video_name,
+        force_reload=True,
+        config=config,
+    )
+    return saved_entry or dict(entry)
+
+
+def ensure_video_catalog_entry(
+    video_path: str,
+    config: Optional[Dict[str, Any]] = None,
+    source_url: str = "",
+    source_platform: str = "local",
+) -> Dict[str, Any]:
+    video_file = Path(video_path).resolve()
+    existing = get_video_catalog_entry(
+        video_file.name,
+        force_reload=True,
+        config=config,
+    )
+
+    auto_entry = build_auto_video_catalog_entry(
+        video_path=str(video_file),
+        source_url=source_url,
+        source_platform=source_platform,
+        existing_entry=existing,
+    )
+
+    return upsert_video_catalog_entry(auto_entry, config=config)
 
 
 def normalize_device(device: Any = None) -> torch.device:

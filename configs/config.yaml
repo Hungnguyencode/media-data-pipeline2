@@ -9,8 +9,8 @@ paths:
   video_catalog_path: "data/video_catalog.json"
 
 video:
-  frame_sampling_fps: 0.75
-  max_frames: 180
+  frame_sampling_fps: 1
+  max_frames: 240
   max_frame_width: 960
   max_frame_height: 540
   allowed_suffixes: [".mp4", ".avi", ".mov", ".mkv", ".webm"]
@@ -37,16 +37,17 @@ models:
     normalize_embeddings: true
 
 pipeline:
-  version: "2.0.0"
+  version: "2.1.0"
   segment_window: 3
   segment_overlap: 1
   caption_merge_window_sec: 3.0
+  caption_dedup_min_gap_sec: 2.0
   enable_multimodal_documents: true
   save_run_metadata: true
   max_top_k: 50
   default_top_k: 5
-  hybrid_search_alpha: 0.6
-  clip_search_beta: 0.4
+  hybrid_search_alpha: 0.35
+  clip_search_beta: 0.65
   hybrid_candidate_multiplier: 3
 
 vector_db:

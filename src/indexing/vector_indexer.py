@@ -46,10 +46,13 @@ class VectorIndexer:
         self.caption_merge_window_sec = float(
             self.config.get("pipeline", {}).get("caption_merge_window_sec", 3.0)
         )
+        self.caption_dedup_min_gap_sec = float(
+            self.config.get("pipeline", {}).get("caption_dedup_min_gap_sec", 4.0)
+        )
         self.enable_multimodal_documents = bool(
             self.config.get("pipeline", {}).get("enable_multimodal_documents", True)
         )
-        self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "1.0.0"))
+        self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "2.1.0"))
 
         self.embedding_model = SentenceTransformer(self.embedding_model_name, device=str(self.device))
 
@@ -171,7 +174,7 @@ class VectorIndexer:
     def _deduplicate_caption_records(
         self,
         captions_data: List[Dict[str, Any]],
-        min_time_gap_sec: float = 10.0,
+        min_time_gap_sec: float = 4.0,
     ) -> List[Dict[str, Any]]:
         deduped: List[Dict[str, Any]] = []
         last_seen_by_video_and_text: Dict[Tuple[str, str], float] = {}
@@ -185,12 +188,12 @@ class VectorIndexer:
         )
 
         for item in sorted_captions:
-            caption_text = (item.get("caption") or "").strip()
-            if not caption_text:
+            source_text = (item.get("caption") or "").strip()
+            if not source_text:
                 continue
 
             video_name = str(item.get("video_name", "")).strip()
-            normalized = self._normalize_caption_text(caption_text)
+            normalized = self._normalize_caption_text(source_text)
             if not normalized:
                 continue
 
@@ -557,7 +560,12 @@ class VectorIndexer:
         captions_data: List[Dict[str, Any]],
         video_source_info: Optional[Dict[str, Any]] = None,
     ) -> int:
-        captions_data = self._deduplicate_caption_records(captions_data, min_time_gap_sec=10.0)
+        dedup_gap_sec = float(getattr(self, "caption_dedup_min_gap_sec", 4.0))
+
+        captions_data = self._deduplicate_caption_records(
+            captions_data,
+            min_time_gap_sec=dedup_gap_sec,
+        )
         source_extra = self._prepare_source_extra(video_source_info)
 
         texts: List[str] = []
@@ -571,7 +579,9 @@ class VectorIndexer:
 
         for item in captions_data:
             caption = (item.get("caption") or "").strip()
+            search_text = (item.get("search_text") or caption).strip()
             clip_embedding = item.get("clip_embedding")
+            action_aliases = item.get("action_aliases") or []
 
             if not caption:
                 continue
@@ -585,6 +595,9 @@ class VectorIndexer:
                 **source_extra,
                 "clip_model_name": item.get("clip_model_name"),
                 "embedding_source": "blip_caption+clip_image",
+                "caption_text_original": caption,
+                "search_text": search_text,
+                "action_aliases": "|".join(str(a).strip() for a in action_aliases if str(a).strip()),
             }
 
             base_meta = self._base_metadata(

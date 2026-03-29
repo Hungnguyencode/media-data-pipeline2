@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from src.indexing.vector_indexer import VectorIndexer
 from src.transform.vision_processor import VisionProcessor
@@ -29,9 +29,47 @@ class SearchEngine:
         pipeline_cfg = self.config.get("pipeline", {})
         self.max_top_k = int(pipeline_cfg.get("max_top_k", 50))
         self.default_top_k = int(pipeline_cfg.get("default_top_k", 5))
-        self.hybrid_search_alpha = float(pipeline_cfg.get("hybrid_search_alpha", 0.6))
-        self.clip_search_beta = float(pipeline_cfg.get("clip_search_beta", 0.4))
+        self.hybrid_search_alpha = float(pipeline_cfg.get("hybrid_search_alpha", 0.35))
+        self.clip_search_beta = float(pipeline_cfg.get("clip_search_beta", 0.65))
         self.hybrid_candidate_multiplier = int(pipeline_cfg.get("hybrid_candidate_multiplier", 3))
+
+        self.query_action_groups: Dict[str, Set[str]] = {
+            "break_open": {"break", "breaking", "crack", "cracking", "open", "opening", "split", "splitting", "separate", "separating", "shell", "shelling"},
+            "cut_divide": {"cut", "cutting", "slice", "slicing", "chop", "chopping", "dice", "dicing", "halve", "halving"},
+            "mix_agitate": {"mix", "mixing", "stir", "stirring", "whisk", "whisking", "beat", "beating", "blend", "blending"},
+            "pour_transfer": {"pour", "pouring", "add", "adding", "transfer", "transferring", "empty", "emptying"},
+            "peel_remove_outer": {"peel", "peeling", "remove", "removing", "strip", "stripping"},
+            "hold_pick_place": {"hold", "holding", "pick", "picking", "place", "placing", "put", "putting", "grab", "grabbing"},
+            "squeeze_press": {"squeeze", "squeezing", "press", "pressing", "pinch", "pinching"},
+        }
+
+        self.object_like_tokens: Set[str] = {
+            "egg",
+            "eggs",
+            "milk",
+            "water",
+            "oil",
+            "juice",
+            "sauce",
+            "cream",
+            "bowl",
+            "spoon",
+            "cup",
+            "glass",
+            "knife",
+            "pan",
+            "jar",
+            "bottle",
+            "onion",
+            "garlic",
+            "tomato",
+            "fruit",
+            "whisk",
+            "yolk",
+            "white",
+        }
+
+        self.audio_only_content_types = {"transcription", "segment_chunk"}
 
     def _distance_to_similarity_proxy(self, distance: Optional[float]) -> Optional[float]:
         if distance is None:
@@ -148,58 +186,172 @@ class SearchEngine:
         )
         return fused
 
-    def _caption_quality_score(self, text: str) -> int:
-        """
-        General text cleanliness score only.
-        No domain-specific keyword preferences.
-        """
-        if not text:
-            return -999
+    def _normalize_text(self, text: str) -> str:
+        cleaned = (text or "").strip().lower()
+        cleaned = re.sub(r"[^\w\s]", " ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
 
-        cleaned = str(text).strip()
-        if not cleaned:
-            return -999
+    def _tokenize(self, text: str) -> Set[str]:
+        normalized = self._normalize_text(text)
+        if not normalized:
+            return set()
+        return set(normalized.split())
 
-        lower = cleaned.lower()
-        words = re.findall(r"\b\w+\b", lower)
-        if not words:
-            return -999
+    def _extract_query_action_groups(self, query: str) -> Set[str]:
+        tokens = self._tokenize(query)
+        matched_groups: Set[str] = set()
+        for group, vocab in self.query_action_groups.items():
+            if tokens.intersection(vocab):
+                matched_groups.add(group)
+        return matched_groups
 
-        score = 0
-        word_count = len(words)
-        unique_ratio = len(set(words)) / max(word_count, 1)
+    def _extract_action_groups_from_result(self, item: Dict[str, Any]) -> Set[str]:
+        meta = item.get("metadata", {}) or {}
 
-        # Prefer captions with reasonable length
-        if 4 <= word_count <= 14:
-            score += 4
-        elif 2 <= word_count <= 18:
-            score += 2
+        search_space = " ".join(
+            [
+                str(meta.get("caption_text_original", "") or ""),
+                str(meta.get("action_aliases", "") or ""),
+            ]
+        )
+
+        tokens = self._tokenize(search_space)
+        matched_groups: Set[str] = set()
+        for group, vocab in self.query_action_groups.items():
+            if tokens.intersection(vocab):
+                matched_groups.add(group)
+        return matched_groups
+
+    def _display_text_for_result(self, item: Dict[str, Any]) -> str:
+        meta = item.get("metadata", {}) or {}
+        original = str(meta.get("caption_text_original", "") or "").strip()
+        if original:
+            return original
+        return str(item.get("document", "") or "").strip()
+
+    def _is_static_object_caption(self, text: str) -> bool:
+        normalized = self._normalize_text(text)
+        if not normalized:
+            return False
+
+        static_patterns = [
+            "a bowl with",
+            "a plate with",
+            "a cup with",
+            "an egg in it",
+            "eggs in a bowl",
+            "a bowl of",
+            "food in a bowl",
+            "a glass bowl with",
+            "two eggs are in",
+            "a whisked egg in it",
+            "empty bowl",
+            "an empty bowl",
+            "a bowl on a table",
+        ]
+        return any(pattern in normalized for pattern in static_patterns)
+
+    def _has_person_or_hand_signal(self, item: Dict[str, Any]) -> bool:
+        meta = item.get("metadata", {}) or {}
+        text = " ".join(
+            [
+                str(meta.get("caption_text_original", "") or ""),
+                str(meta.get("search_text", "") or ""),
+            ]
+        )
+        tokens = self._tokenize(text)
+        return bool(tokens.intersection({"person", "hand", "hands", "someone"}))
+
+    def _modality_bonus(self, item: Dict[str, Any], has_action_query: bool, has_action_match: bool) -> float:
+        meta = item.get("metadata", {}) or {}
+        content_type = str(meta.get("content_type", "") or "")
+
+        if not has_action_query:
+            return 0.0
+
+        if content_type == "caption":
+            return 0.03 if has_action_match else 0.0
+        if content_type == "multimodal":
+            return 0.02 if has_action_match else 0.0
+        if content_type in self.audio_only_content_types:
+            return -0.04
+        return 0.0
+
+    def _soft_semantic_bonus(self, item: Dict[str, Any], query: str) -> float:
+        meta = item.get("metadata", {}) or {}
+
+        original_caption = str(meta.get("caption_text_original", "") or "")
+        search_text = str(meta.get("search_text", "") or "")
+        action_aliases = str(meta.get("action_aliases", "") or "")
+        doc_text = str(item.get("document", "") or "")
+
+        query_tokens = self._tokenize(query)
+        original_tokens = self._tokenize(original_caption)
+        alias_tokens = self._tokenize(action_aliases)
+        combined_tokens = self._tokenize(" ".join([doc_text, original_caption, search_text, action_aliases]))
+
+        if not query_tokens or not combined_tokens:
+            return 0.0
+
+        query_groups = self._extract_query_action_groups(query)
+        result_groups = self._extract_action_groups_from_result(item)
+
+        original_overlap = query_tokens.intersection(original_tokens)
+        alias_overlap = query_tokens.intersection(alias_tokens)
+        object_overlap = query_tokens.intersection(self.object_like_tokens)
+
+        has_action_query = bool(query_groups)
+        has_action_match = bool(query_groups.intersection(result_groups))
+        has_object_overlap = bool(object_overlap)
+        has_person_signal = self._has_person_or_hand_signal(item)
+
+        token_bonus = min(0.03, len(original_overlap) * 0.012)
+        alias_bonus = min(0.015, len(alias_overlap) * 0.005)
+        action_bonus = 0.0
+        object_bonus = 0.0
+        static_penalty = 0.0
+        modality_bonus = self._modality_bonus(item, has_action_query, has_action_match)
+
+        if has_action_query:
+            if has_action_match:
+                action_bonus += 0.10
+                if has_object_overlap:
+                    object_bonus += 0.02
+                if len(original_overlap) >= 2:
+                    token_bonus += 0.015
+
+                if not has_person_signal and self._is_static_object_caption(original_caption):
+                    static_penalty -= 0.08
+            else:
+                if self._is_static_object_caption(original_caption):
+                    static_penalty -= 0.12
+                if has_object_overlap:
+                    object_bonus += 0.002
+                    static_penalty -= 0.04
+                token_bonus = min(token_bonus, 0.01)
+                alias_bonus = min(alias_bonus, 0.005)
         else:
-            score -= 2
+            if has_object_overlap:
+                object_bonus += 0.015
 
-        # Prefer captions with more lexical variety
-        if unique_ratio >= 0.8:
-            score += 3
-        elif unique_ratio >= 0.6:
-            score += 1
-        else:
-            score -= 2
+        final_bonus = token_bonus + alias_bonus + action_bonus + object_bonus + static_penalty + modality_bonus
+        return round(final_bonus, 6)
 
-        # Penalize repeated words / noisy phrases
-        repeated_word_penalty = max(0, word_count - len(set(words)))
-        score -= repeated_word_penalty
+    def _apply_soft_rerank(self, results: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+        reranked: List[Dict[str, Any]] = []
 
-        # Penalize obviously messy punctuation patterns
-        if "  " in cleaned:
-            score -= 1
-        if cleaned.endswith(("a", "an", "the", "of", "with", "in", "on", "to")):
-            score -= 1
+        for item in results:
+            bonus = self._soft_semantic_bonus(item, query)
+            updated = dict(item)
+            updated["fusion_score"] = round(updated.get("fusion_score", 0.0) + bonus, 6)
+            updated["relevance"] = updated["fusion_score"]
+            if bonus != 0:
+                updated["score_type"] = "hybrid_fusion+rerank"
+            reranked.append(updated)
 
-        # Mild preference for sentence-like captions
-        if cleaned and cleaned[0].isupper():
-            score += 1
-
-        return score
+        reranked.sort(key=lambda x: x.get("fusion_score", 0.0), reverse=True)
+        return reranked
 
     def _find_nearby_speech_context(
         self,
@@ -311,16 +463,6 @@ class SearchEngine:
         for group in groups:
             best_item = max(group, key=lambda x: x.get("fusion_score", 0.0))
 
-            captions = [
-                g.get("document", "")
-                for g in group
-                if (g.get("metadata") or {}).get("content_type") == "caption"
-            ]
-            if captions:
-                best_caption = max(captions, key=self._caption_quality_score)
-            else:
-                best_caption = best_item.get("document", "")
-
             timestamps = []
             for g in group:
                 meta = g.get("metadata", {}) or {}
@@ -341,18 +483,11 @@ class SearchEngine:
                 "end": event_end,
             }
 
-            # Prefer the caption only when it is reasonably clean;
-            # otherwise keep the best fused result text.
-            best_document = best_item.get("document", "") or ""
-            if self._caption_quality_score(best_caption) >= self._caption_quality_score(best_document):
-                display_text = best_caption
-            else:
-                display_text = best_document
+            best_document = self._display_text_for_result(best_item)
+            event_item["display_caption"] = best_document
+            event_item["display_text"] = best_document
 
-            event_item["display_caption"] = best_caption
-            event_item["display_text"] = display_text
-
-            meta = dict(event_item.get("metadata", {}) or {})
+            meta = dict(event_item.get("metadata") or {})
             if event_start is not None:
                 meta["event_start_timestamp"] = event_start
             if event_end is not None:
@@ -425,5 +560,6 @@ class SearchEngine:
             )
 
         fused_results = self._fuse_results(text_results, clip_results)
-        final_results = self._group_results_into_events(fused_results, top_k=top_k)
+        reranked_results = self._apply_soft_rerank(fused_results, query)
+        final_results = self._group_results_into_events(reranked_results, top_k=top_k)
         return final_results

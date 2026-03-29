@@ -12,6 +12,7 @@ from src.retrieval.search_engine import SearchEngine
 from src.transform.vision_processor import VisionProcessor
 from src.transform.whisper_processor import WhisperProcessor
 from src.utils import (
+    ensure_video_catalog_entry,
     get_config,
     get_data_path,
     get_video_catalog_entry,
@@ -82,6 +83,7 @@ class MediaDataPipeline:
             force_reload=True,
             config=self.config,
         ) or {}
+
         local_video_path = entry.get("local_video_path") or video_path
         tags = entry.get("tags") or []
 
@@ -119,6 +121,13 @@ class MediaDataPipeline:
         video_file = Path(video_path)
         if not video_file.exists():
             raise FileNotFoundError(f"Video file not found: {video_path}")
+
+        # Auto-create or update catalog entry before reading source info.
+        ensure_video_catalog_entry(
+            video_path=video_path,
+            config=self.config,
+            source_platform="local",
+        )
 
         video_source_info = self._build_video_source_info(video_name, video_path)
         result["video_source_info"] = video_source_info
@@ -277,12 +286,13 @@ class MediaDataPipeline:
         release_memory()
 
         logger.info(
-            "Pipeline finished for '%s'. Indexed %d transcription, %d caption, %d multimodal records.",
+            "Pipeline completed for '%s' | transcription=%d | caption=%d | multimodal=%d",
             video_name,
             trans_count,
             cap_count,
             multi_count,
         )
+
         return result
 
     def search(
@@ -300,36 +310,28 @@ class MediaDataPipeline:
         )
 
 
-def main():
-    setup_logging()
-
-    parser = argparse.ArgumentParser(description="Media Data Pipeline")
-    parser.add_argument("--video", type=str, help="Path to video file")
-    parser.add_argument("--query", type=str, help="Semantic query")
-    parser.add_argument("--top-k", type=int, default=5, help="Top K results")
-    parser.add_argument("--content-type", type=str, default=None, help="Filter by content type")
-    parser.add_argument("--video-name", type=str, default=None, help="Filter by video name")
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Media data pipeline")
+    parser.add_argument("--video", required=True, help="Path to input video")
     parser.add_argument(
         "--reset-index",
         action="store_true",
-        help="Delete previous indexed data for this video before re-index",
+        help="Delete previous indexed records of this video before re-indexing",
     )
+    return parser
+
+
+def main() -> None:
+    setup_logging()
+    parser = build_arg_parser()
     args = parser.parse_args()
 
-    pipeline = MediaDataPipeline()
+    pipeline = MediaDataPipeline(get_config())
+    result = pipeline.process_video(args.video, reset_index=args.reset_index)
 
-    if args.video:
-        result = pipeline.process_video(args.video, reset_index=args.reset_index)
-        print(result)
-
-    if args.query:
-        results = pipeline.search(
-            args.query,
-            top_k=args.top_k,
-            content_type=args.content_type,
-            video_name=args.video_name,
-        )
-        print(results)
+    print("\n=== PIPELINE RESULT ===")
+    for key, value in result.items():
+        print(f"{key}: {value}")
 
 
 if __name__ == "__main__":

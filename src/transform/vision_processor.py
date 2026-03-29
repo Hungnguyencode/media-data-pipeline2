@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 import open_clip
@@ -31,7 +31,7 @@ class VisionProcessor:
         self.image_size = int(vision_cfg.get("image_size", 384))
         self.output_language = vision_cfg.get("output_language", "en")
         self.fallback_to_cpu_on_oom = bool(vision_cfg.get("fallback_to_cpu_on_oom", True))
-        self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "1.0.0"))
+        self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "2.1.0"))
 
         self.blip_processor = None
         self.blip_model = None
@@ -49,6 +49,139 @@ class VisionProcessor:
             get_data_path(self.config["paths"].get("processed_dir", "data/processed"))
         )
         self.processed_dir.mkdir(parents=True, exist_ok=True)
+
+        self.action_families: Dict[str, List[str]] = {
+            "break_open": [
+                "break",
+                "breaking",
+                "break open",
+                "breaking open",
+                "crack",
+                "cracking",
+                "split",
+                "splitting",
+                "split open",
+                "open",
+                "opening",
+                "separate",
+                "separating",
+                "shell",
+                "shelling",
+            ],
+            "peel_remove_outer": [
+                "peel",
+                "peeling",
+                "remove peel",
+                "removing peel",
+                "remove shell",
+                "removing shell",
+                "strip",
+                "stripping",
+            ],
+            "cut_divide": [
+                "cut",
+                "cutting",
+                "slice",
+                "slicing",
+                "chop",
+                "chopping",
+                "dice",
+                "dicing",
+                "halve",
+                "halving",
+            ],
+            "mix_agitate": [
+                "mix",
+                "mixing",
+                "stir",
+                "stirring",
+                "whisk",
+                "whisking",
+                "beat",
+                "beating",
+                "blend",
+                "blending",
+            ],
+            "pour_transfer": [
+                "pour",
+                "pouring",
+                "add",
+                "adding",
+                "transfer",
+                "transferring",
+                "empty",
+                "emptying",
+            ],
+            "hold_pick_place": [
+                "hold",
+                "holding",
+                "pick up",
+                "picking up",
+                "place",
+                "placing",
+                "put",
+                "putting",
+                "grab",
+                "grabbing",
+            ],
+            "squeeze_press": [
+                "squeeze",
+                "squeezing",
+                "press",
+                "pressing",
+                "pinch",
+                "pinching",
+            ],
+        }
+
+        self.openable_object_cues: Set[str] = {
+            "egg",
+            "eggs",
+            "shell",
+            "package",
+            "packet",
+            "bag",
+            "box",
+            "carton",
+            "jar",
+            "bottle",
+            "can",
+            "capsule",
+            "pod",
+            "fruit",
+            "orange",
+            "coconut",
+            "nut",
+            "garlic",
+            "onion",
+            "avocado",
+            "oyster",
+            "clam",
+        }
+
+        self.container_cues: Set[str] = {
+            "bowl",
+            "cup",
+            "glass",
+            "plate",
+            "pan",
+            "pot",
+            "tray",
+            "container",
+            "jar",
+            "spoon",
+        }
+
+        self.pourable_object_cues: Set[str] = {
+            "milk",
+            "water",
+            "oil",
+            "juice",
+            "sauce",
+            "syrup",
+            "cream",
+            "liquid",
+        }
 
     def _load_models(self, device=None):
         target_device = normalize_device(device or self.device)
@@ -100,10 +233,6 @@ class VisionProcessor:
         return caption
 
     def _remove_repeated_phrases(self, text: str) -> str:
-        """
-        Remove immediate repeated 1- to 3-word phrases, e.g.
-        'a man a man holding a cup' -> 'a man holding a cup'
-        """
         tokens = text.split()
         if not tokens:
             return text
@@ -126,22 +255,170 @@ class VisionProcessor:
 
         return " ".join(tokens)
 
+    def _normalize_for_matching(self, text: str) -> str:
+        normalized = (text or "").strip().lower()
+        normalized = re.sub(r"[^\w\s]", " ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
+
+    def _has_any_phrase(self, text: str, phrases: Set[str]) -> bool:
+        normalized = f" {self._normalize_for_matching(text)} "
+        for phrase in phrases:
+            if f" {phrase} " in normalized:
+                return True
+        return False
+
+    def _detect_objects_and_context(self, caption: str) -> Dict[str, bool]:
+        lower = self._normalize_for_matching(caption)
+        tokens = set(lower.split())
+
+        openable_object_cues = getattr(
+            self,
+            "openable_object_cues",
+            {
+                "egg",
+                "eggs",
+                "shell",
+                "package",
+                "packet",
+                "bag",
+                "box",
+                "carton",
+                "jar",
+                "bottle",
+                "can",
+                "capsule",
+                "pod",
+                "fruit",
+                "orange",
+                "coconut",
+                "nut",
+                "garlic",
+                "onion",
+                "avocado",
+                "oyster",
+                "clam",
+            },
+        )
+
+        container_cues = getattr(
+            self,
+            "container_cues",
+            {
+                "bowl",
+                "cup",
+                "glass",
+                "plate",
+                "pan",
+                "pot",
+                "tray",
+                "container",
+                "jar",
+                "spoon",
+            },
+        )
+
+        pourable_object_cues = getattr(
+            self,
+            "pourable_object_cues",
+            {
+                "milk",
+                "water",
+                "oil",
+                "juice",
+                "sauce",
+                "syrup",
+                "cream",
+                "liquid",
+            },
+        )
+
+        return {
+            "has_openable_object": any(word in tokens for word in openable_object_cues),
+            "has_container": any(word in tokens for word in container_cues),
+            "has_person": bool(tokens.intersection({"person", "hand", "hands", "someone"})),
+            "has_pourable_object": any(word in tokens for word in pourable_object_cues),
+        }
+
+    def _replace_action_phrase(self, text: str, source_phrase: str, target_phrase: str) -> str:
+        pattern = re.compile(rf"\b{re.escape(source_phrase)}\b", flags=re.IGNORECASE)
+        if not pattern.search(text):
+            return ""
+
+        replaced = pattern.sub(target_phrase, text, count=1)
+        replaced = re.sub(r"\s+", " ", replaced).strip()
+        if replaced:
+            replaced = replaced[0].upper() + replaced[1:]
+        return replaced
+
+    def _sanitize_action_hallucination(self, caption: str, timestamp: float) -> str:
+        _ = timestamp
+
+        if not caption:
+            return caption
+
+        normalized = self._normalize_for_matching(caption)
+        if not normalized:
+            return caption
+
+        action_families = getattr(self, "action_families", {})
+        pour_terms = set(action_families.get("pour_transfer", []))
+        break_terms = set(action_families.get("break_open", []))
+        peel_terms = set(action_families.get("peel_remove_outer", []))
+
+        has_pour_action = self._has_any_phrase(normalized, pour_terms)
+        has_break_or_peel = self._has_any_phrase(normalized, break_terms.union(peel_terms))
+
+        context = self._detect_objects_and_context(caption)
+        tokens = set(normalized.split())
+
+        has_person = context["has_person"]
+        has_container = context["has_container"]
+        has_pourable_object = context["has_pourable_object"]
+        has_openable_object = context["has_openable_object"]
+
+        if has_pour_action:
+            # Chỉ tin action đổ khi có đủ tín hiệu mạnh
+            strong_pour_signal = has_person and has_container and has_pourable_object
+            medium_pour_signal = has_person and has_container
+
+            if strong_pour_signal:
+                return caption
+
+            # Nếu thiếu người/tay hoặc thiếu chất lỏng rõ, hạ caption về trung tính
+            if not medium_pour_signal:
+                if "egg" in tokens or "eggs" in tokens:
+                    return "A bowl with eggs in it"
+                if "spoon" in tokens:
+                    return "A bowl with a spoon"
+                if "bowl" in tokens:
+                    return "A bowl on a table"
+                if "cup" in tokens or "glass" in tokens:
+                    return "A container on a table"
+                return "A container on a table"
+
+            # Có person nhưng không có vật thể lỏng rõ -> vẫn trung tính hơn
+            if has_person and has_container and not has_pourable_object:
+                if "bowl" in tokens:
+                    return "A person near a bowl"
+                if "spoon" in tokens:
+                    return "A person holding a spoon"
+                return "A person near a container"
+
+        if has_break_or_peel and has_openable_object:
+            return caption
+
+        return caption
+
     def _refine_caption(self, caption: str, timestamp: float) -> str:
-        """
-        General cleanup only.
-        Do NOT rewrite semantic meaning based on a specific demo domain.
-        """
-        _ = timestamp  # kept for interface stability
+        _ = timestamp
 
         if not caption:
             return caption
 
         refined = caption.strip().lower()
-
-        # Normalize whitespace
         refined = re.sub(r"\s+", " ", refined).strip()
 
-        # Very light, general typo/phrase cleanup only
         general_replacements = [
             (" in a blend", " in a bowl"),
             (" into a blend", " into a bowl"),
@@ -151,7 +428,6 @@ class VisionProcessor:
         for old, new in general_replacements:
             refined = refined.replace(old, new)
 
-        # Remove obvious repeated phrases/words
         refined = self._remove_repeated_phrases(refined)
         refined = re.sub(r"\b(\w+)( \1\b)+", r"\1", refined)
         refined = re.sub(r"\s+", " ", refined).strip()
@@ -159,7 +435,168 @@ class VisionProcessor:
         if refined:
             refined = refined[0].upper() + refined[1:]
 
+        refined = self._sanitize_action_hallucination(refined, timestamp)
         return refined
+
+    def _extract_action_aliases(self, caption: str) -> List[str]:
+        if not caption:
+            return []
+
+        cleaned = self._normalize_for_matching(caption)
+        context = self._detect_objects_and_context(caption)
+        aliases: List[str] = []
+
+        action_families = getattr(
+            self,
+            "action_families",
+            {
+                "break_open": [
+                    "break",
+                    "breaking",
+                    "break open",
+                    "breaking open",
+                    "crack",
+                    "cracking",
+                    "split",
+                    "splitting",
+                    "split open",
+                    "open",
+                    "opening",
+                    "separate",
+                    "separating",
+                    "shell",
+                    "shelling",
+                ],
+                "peel_remove_outer": [
+                    "peel",
+                    "peeling",
+                    "remove peel",
+                    "removing peel",
+                    "remove shell",
+                    "removing shell",
+                    "strip",
+                    "stripping",
+                ],
+                "cut_divide": [
+                    "cut",
+                    "cutting",
+                    "slice",
+                    "slicing",
+                    "chop",
+                    "chopping",
+                    "dice",
+                    "dicing",
+                    "halve",
+                    "halving",
+                ],
+                "mix_agitate": [
+                    "mix",
+                    "mixing",
+                    "stir",
+                    "stirring",
+                    "whisk",
+                    "whisking",
+                    "beat",
+                    "beating",
+                    "blend",
+                    "blending",
+                ],
+                "pour_transfer": [
+                    "pour",
+                    "pouring",
+                    "add",
+                    "adding",
+                    "transfer",
+                    "transferring",
+                    "empty",
+                    "emptying",
+                ],
+                "hold_pick_place": [
+                    "hold",
+                    "holding",
+                    "pick up",
+                    "picking up",
+                    "place",
+                    "placing",
+                    "put",
+                    "putting",
+                    "grab",
+                    "grabbing",
+                ],
+                "squeeze_press": [
+                    "squeeze",
+                    "squeezing",
+                    "press",
+                    "pressing",
+                    "pinch",
+                    "pinching",
+                ],
+            },
+        )
+
+        family_by_phrase: Dict[str, str] = {}
+        for family, phrases in action_families.items():
+            for phrase in phrases:
+                family_by_phrase[phrase] = family
+
+        matched_phrases = [phrase for phrase in family_by_phrase if f" {phrase} " in f" {cleaned} "]
+
+        for phrase in matched_phrases:
+            family = family_by_phrase[phrase]
+            sibling_phrases = action_families.get(family, [])
+
+            for sibling in sibling_phrases:
+                if sibling == phrase:
+                    continue
+                alias = self._replace_action_phrase(caption, phrase, sibling)
+                if alias:
+                    aliases.append(alias)
+
+            if family in {"break_open", "peel_remove_outer"} and context["has_openable_object"]:
+                bridge_targets = ["break_open", "peel_remove_outer"]
+                for target_family in bridge_targets:
+                    for sibling in action_families.get(target_family, []):
+                        if sibling == phrase:
+                            continue
+                        alias = self._replace_action_phrase(caption, phrase, sibling)
+                        if alias:
+                            aliases.append(alias)
+
+            if (
+                family == "pour_transfer"
+                and context["has_pourable_object"]
+                and context["has_container"]
+                and context["has_person"]
+            ):
+                for sibling in action_families.get("pour_transfer", []):
+                    if sibling == phrase:
+                        continue
+                    alias = self._replace_action_phrase(caption, phrase, sibling)
+                    if alias:
+                        aliases.append(alias)
+
+        deduped: List[str] = []
+        seen = set()
+        original_norm = self._normalize_for_matching(caption)
+        for alias in aliases:
+            norm = self._normalize_for_matching(alias)
+            if not norm or norm == original_norm or norm in seen:
+                continue
+            seen.add(norm)
+            deduped.append(alias)
+
+        return deduped[:5]
+
+    def _build_search_text(self, caption: str, action_aliases: List[str]) -> str:
+        base = caption.strip()
+        if not action_aliases:
+            return base
+
+        alias_block = " | ".join(action_aliases[:2]).strip()
+        if not alias_block:
+            return base
+
+        return f"{base} [Action aliases] {alias_block}"
 
     def _save_json(self, data: Any, output_path: Path) -> None:
         with open(output_path, "w", encoding="utf-8") as f:
@@ -234,6 +671,8 @@ class VisionProcessor:
 
             timestamp = self._extract_timestamp_from_filename(image_file.name)
             refined_caption = self._refine_caption(raw_caption, timestamp)
+            action_aliases = self._extract_action_aliases(refined_caption)
+            search_text = self._build_search_text(refined_caption, action_aliases)
 
             results.append(
                 {
@@ -245,6 +684,8 @@ class VisionProcessor:
                     "caption": refined_caption,
                     "raw_caption": raw_caption,
                     "caption_refined": refined_caption,
+                    "action_aliases": action_aliases,
+                    "search_text": search_text,
                     "blip_model_name": self.blip_name,
                     "clip_model_name": f"{self.clip_name}:{self.clip_pretrained}",
                     "device_used": str(self.device),
