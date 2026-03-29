@@ -239,12 +239,6 @@ with tab1:
         "Truy vấn thiên về khung cảnh/vật thể/hành động nên ưu tiên 'Caption ảnh' hoặc 'Tài liệu đa phương thức'."
     )
 
-    if st.session_state.get("last_processed_video_name"):
-        show_video_preview(
-            st.session_state.get("last_processed_video_name"),
-            title="Video vừa xử lý gần nhất",
-        )
-
     query = st.text_input("Nhập câu truy vấn", key="query_input")
     top_k = st.slider("Top K", min_value=1, max_value=20, value=5)
 
@@ -288,8 +282,19 @@ with tab1:
     elif selected_video != "Tất cả video":
         chosen_video_for_preview = selected_video
 
-    if chosen_video_for_preview:
-        show_video_preview(chosen_video_for_preview, title="Video đang được chọn để tìm kiếm")
+    last_video_name = st.session_state.get("last_processed_video_name")
+
+    if last_video_name:
+        show_video_preview(
+            last_video_name,
+            title="Video vừa xử lý gần nhất",
+        )
+
+    if chosen_video_for_preview and chosen_video_for_preview != last_video_name:
+        show_video_preview(
+            chosen_video_for_preview,
+            title="Video đang được chọn để tìm kiếm",
+        )
 
     if st.button("Search"):
         if not query.strip():

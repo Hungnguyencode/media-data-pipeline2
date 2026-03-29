@@ -35,12 +35,24 @@
     "video_name": "5 Minute Wildlife Documentary A Breathtaking Journey Through Earth's Diverse Wildlife.mp4",
     "local_video_path": "data/raw/5 Minute Wildlife Documentary A Breathtaking Journey Through Earth's Diverse Wildlife.mp4",
     "source_platform": "local",
-    "source_url": "",
+    "source_url": "https://www.youtube.com/watch?v=ZnUHQLtad-0&t=46s",
     "title": "5 Minute Wildlife Documentary A Breathtaking Journey Through Earth's Diverse Wildlife",
     "description": "",
     "thumbnail_url": "",
     "tags": [],
     "created_at": "2026-03-29T14:36:18",
     "ingested_at": "2026-03-29T16:00:44"
+  },
+  {
+    "video_name": "Powfu - death bed (coffee for your head) (Official Video) ft. beabadoobee.mp4",
+    "local_video_path": "data/raw/Powfu - death bed (coffee for your head) (Official Video) ft. beabadoobee.mp4",
+    "source_platform": "local",
+    "source_url": "https://www.youtube.com/watch?v=jJPMnTXl63E&list=RDjJPMnTXl63E&start_radio=1",
+    "title": "Powfu   death bed (coffee for your head) (Official Video) ft. beabadoobee",
+    "description": "",
+    "thumbnail_url": "",
+    "tags": [],
+    "created_at": "2026-03-29T22:42:42",
+    "ingested_at": "2026-03-29T22:42:42"
   }
 ]
