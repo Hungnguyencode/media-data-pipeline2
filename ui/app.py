@@ -156,9 +156,10 @@ def parse_video_tags(value: object) -> list[str]:
 def show_source_info_block(meta: dict):
     source_platform = meta.get("source_platform")
     source_url = meta.get("source_url")
-    video_title = meta.get("video_title")
-    video_description = meta.get("video_description")
-    video_tags = parse_video_tags(meta.get("video_tags"))
+    video_title = meta.get("video_title") or meta.get("title")
+    video_description = meta.get("video_description") or meta.get("description")
+    video_tags = parse_video_tags(meta.get("video_tags") or meta.get("tags"))
+    thumbnail_url = meta.get("thumbnail_url")
 
     if video_title:
         st.write("Title:", video_title)
@@ -170,6 +171,8 @@ def show_source_info_block(meta: dict):
             st.markdown(f"- {tag}")
     if video_description:
         st.caption(shorten_text(video_description, max_chars=220))
+    if thumbnail_url:
+        st.write("Thumbnail:", thumbnail_url)
     if source_url:
         st.markdown(f"[Mở link nguồn]({source_url})")
 
@@ -227,8 +230,8 @@ with st.sidebar:
 videos = fetch_videos()
 video_options = ["Tất cả video"] + videos
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["Search", "Upload & Process", "Process by Path", "Video Inventory"]
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["Search", "Upload & Process", "Process by Path", "Process by YouTube URL", "Video Inventory"]
 )
 
 with tab1:
@@ -518,6 +521,61 @@ with tab3:
                 st.error(f"Lỗi khi xử lý video: {e}")
 
 with tab4:
+    st.subheader("Process by YouTube URL")
+
+    st.info("Phiên bản hiện tại chỉ hỗ trợ 1 YouTube URL sạch mỗi lần, không hỗ trợ playlist hoặc Shorts.")
+
+    youtube_url = st.text_input("Nhập YouTube URL")
+    reset_index_youtube = st.checkbox(
+        "Xóa dữ liệu cũ của video này trước khi index lại",
+        value=True,
+        key="youtube_reset",
+    )
+
+    if st.button("Download & Process"):
+        if not youtube_url.strip():
+            st.warning("Vui lòng nhập YouTube URL.")
+        else:
+            try:
+                response = requests.post(
+                    f"{API_BASE}/ingest-youtube",
+                    json={
+                        "video_url": youtube_url.strip(),
+                        "reset_index": reset_index_youtube,
+                    },
+                    timeout=7200,
+                )
+                response.raise_for_status()
+                result = response.json()
+
+                ingest_result = result.get("ingest_result", {})
+                process_result = result.get("result", {})
+                video_name = process_result.get("video_name") or ingest_result.get("video_name")
+
+                st.session_state["last_processed_result"] = result
+                st.session_state["last_processed_video_name"] = video_name
+
+                st.success("Tải YouTube video và xử lý thành công")
+                if result.get("message"):
+                    st.info(result["message"])
+
+                st.markdown("### Ingest result")
+                st.json(ingest_result)
+
+                source_info = process_result.get("video_source_info") or ingest_result
+                if source_info:
+                    st.markdown("### Nguồn video")
+                    show_source_info_block(source_info)
+
+                st.markdown("### Pipeline result")
+                st.json(process_result)
+
+                if video_name:
+                    show_video_preview(video_name, title="Video vừa tải từ YouTube và xử lý")
+            except Exception as e:
+                st.error(f"Lỗi khi ingest YouTube: {e}")
+
+with tab5:
     st.subheader("Video Inventory")
 
     if st.session_state.get("last_processed_video_name"):

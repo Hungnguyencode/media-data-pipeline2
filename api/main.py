@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -8,9 +9,11 @@ from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from main_pipeline import MediaDataPipeline
+from src.ingest.youtube_ingestor import YouTubeIngestor
 from src.utils import get_config, get_data_path, setup_logging
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Media Semantic Search API")
 
@@ -26,6 +29,7 @@ ALLOWED_VIDEO_CONTENT_TYPES = {
 }
 
 _pipeline: Optional[MediaDataPipeline] = None
+_youtube_ingestor: Optional[YouTubeIngestor] = None
 
 
 def get_pipeline() -> MediaDataPipeline:
@@ -33,6 +37,13 @@ def get_pipeline() -> MediaDataPipeline:
     if _pipeline is None:
         _pipeline = MediaDataPipeline(get_config())
     return _pipeline
+
+
+def get_youtube_ingestor() -> YouTubeIngestor:
+    global _youtube_ingestor
+    if _youtube_ingestor is None:
+        _youtube_ingestor = YouTubeIngestor(get_config())
+    return _youtube_ingestor
 
 
 class SearchRequest(BaseModel):
@@ -44,6 +55,11 @@ class SearchRequest(BaseModel):
 
 class ProcessVideoRequest(BaseModel):
     video_path: str
+    reset_index: bool = False
+
+
+class IngestYouTubeRequest(BaseModel):
+    video_url: str
     reset_index: bool = False
 
 
@@ -74,6 +90,7 @@ def root():
             "/search",
             "/process-video",
             "/upload-video",
+            "/ingest-youtube",
             "/stats",
             "/videos",
             "/videos/inventory",
@@ -262,3 +279,42 @@ def upload_video(
             file.file.close()
         except Exception:
             pass
+
+
+@app.post("/ingest-youtube")
+def ingest_youtube(request: IngestYouTubeRequest):
+    raw_url = request.video_url.strip()
+    if not raw_url:
+        raise HTTPException(status_code=400, detail="video_url must not be empty")
+
+    try:
+        logger.info("Received YouTube ingest request: %s", raw_url)
+
+        ingestor = get_youtube_ingestor()
+        ingest_result = ingestor.ingest(raw_url)
+
+        logger.info(
+            "YouTube ingest metadata ready: %s -> %s",
+            ingest_result["source_url"],
+            ingest_result["video_name"],
+        )
+
+        pipeline = get_pipeline()
+        process_result = pipeline.process_video(
+            ingest_result["video_path"],
+            reset_index=request.reset_index,
+            source_metadata=ingest_result,
+        )
+
+        return {
+            "ingest_result": ingest_result,
+            "result": process_result,
+            "message": f"Ingested and processed YouTube video: {ingest_result['video_name']}",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("YouTube ingest failed")
+        raise HTTPException(status_code=500, detail=f"YouTube ingest failed: {e}") from e

@@ -8,7 +8,8 @@
 - mô tả nội dung hình ảnh theo frame,
 - lập chỉ mục vector,
 - tìm kiếm ngữ nghĩa trên kho dữ liệu video,
-- và quản lý inventory video đã được index.
+- quản lý inventory video đã được index,
+- và hỗ trợ ingest video từ **YouTube URL**.
 
 Phiên bản hiện tại của hệ thống hoạt động theo hướng **multimodal semantic search**, kết hợp:
 
@@ -20,7 +21,7 @@ Phiên bản hiện tại của hệ thống hoạt động theo hướng **mult
 - **FastAPI** để cung cấp API,
 - **Streamlit** để làm giao diện demo.
 
-Ngoài phần semantic search, hệ thống còn có lớp **video catalog metadata** để gắn kết video local với metadata nguồn như nền tảng, link gốc, tiêu đề, mô tả và tags.
+Ngoài phần semantic search, hệ thống còn có lớp **video catalog metadata** để gắn kết video local hoặc video ingest từ YouTube với metadata nguồn như nền tảng, link gốc, tiêu đề, mô tả, thumbnail và tags.
 
 ---
 
@@ -40,14 +41,16 @@ Hệ thống hướng tới một pipeline hoàn chỉnh cho video semantic sear
 ## 3. Chức năng chính
 
 ### 3.1. Xử lý video
-- nhận video từ đường dẫn local hoặc upload qua UI/API,
+- nhận video từ đường dẫn local,
+- upload video qua UI/API,
+- ingest video từ **YouTube URL**,
 - tách audio từ video bằng FFmpeg,
 - trích xuất frame theo thời gian.
 
 ### 3.2. Trích xuất thông tin
 - chuyển giọng nói thành văn bản bằng Whisper,
 - sinh caption mô tả nội dung frame bằng BLIP,
-- encode frame bằng CLIP image embedding,
+- encode frame bằng OpenCLIP image embedding,
 - tạo multimodal documents bằng cách kết hợp speech và visual context gần nhau theo thời gian.
 
 ### 3.3. Lập chỉ mục vector
@@ -58,7 +61,7 @@ Hệ thống index 4 loại document:
 - `caption`
 - `multimodal`
 
-Text documents được đưa vào text collection, còn CLIP image embedding của caption được đưa vào clip collection.
+Text documents được đưa vào **text collection**, còn CLIP image embedding của caption được đưa vào **clip collection**.
 
 ### 3.4. Tìm kiếm ngữ nghĩa
 Hệ thống hỗ trợ:
@@ -78,7 +81,7 @@ Hệ thống hỗ trợ:
 - hiển thị metadata nguồn video trong search result và inventory.
 
 ### 3.6. Auto-catalog metadata
-Khi xử lý một video local mới, hệ thống có thể **tự động tạo hoặc cập nhật entry trong `data/video_catalog.json`** với metadata cơ bản như:
+Khi xử lý một video local mới hoặc ingest từ YouTube, hệ thống có thể **tự động tạo hoặc cập nhật entry trong `data/video_catalog.json`** với metadata như:
 
 - `video_name`
 - `local_video_path`
@@ -91,7 +94,16 @@ Khi xử lý một video local mới, hệ thống có thể **tự động tạ
 - `created_at`
 - `ingested_at`
 
-Với video local chưa có metadata nguồn thật, hệ thống sẽ tự gán metadata mặc định theo kiểu `local`.
+### 3.7. YouTube ingest (Bản 2)
+Hệ thống hiện hỗ trợ:
+
+- nhập **YouTube URL**,
+- canonicalize về URL chuẩn dạng `watch?v=...`,
+- lấy metadata bằng `yt-dlp`,
+- tải video về `data/raw`,
+- kiểm tra audio stream bằng `ffprobe`,
+- cập nhật catalog tự động,
+- đẩy video vào pipeline xử lý và index.
 
 ---
 
@@ -111,11 +123,14 @@ Với video local chưa có metadata nguồn thật, hệ thống sẽ tự gán
 ### 4.4. Retrieval layer
 - `SearchEngine`
 
-### 4.5. Serving layer
+### 4.5. Ingest layer
+- `YouTubeIngestor`
+
+### 4.6. Serving layer
 - `FastAPI`
 - `Streamlit`
 
-### 4.6. Catalog / metadata layer
+### 4.7. Catalog / metadata layer
 - `data/video_catalog.json`
 - các utility trong `src/utils.py` để load / save / upsert catalog entry
 
@@ -131,7 +146,8 @@ Với video local chưa có metadata nguồn thật, hệ thống sẽ tự gán
 - Whisper
 - BLIP
 - OpenCLIP
-- FFmpeg
+- FFmpeg / FFprobe
+- yt-dlp
 - PyTest
 
 ---
@@ -159,6 +175,7 @@ project/
 ├── src/
 │   ├── extract/
 │   ├── indexing/
+│   ├── ingest/
 │   ├── retrieval/
 │   ├── transform/
 │   └── utils.py
@@ -193,7 +210,7 @@ video:
 - `240 frames`: giới hạn tối đa 240 frame mỗi video,
 - đây là cấu hình **cân bằng** giữa:
   - action ngắn,
-  - video dài hơn,
+  - video dài vừa,
   - và tải máy khi demo.
 
 ### 7.2. Mô hình
@@ -218,13 +235,15 @@ Một số tham số chính:
 ### Bước 1: Nhận video
 Video đi vào hệ thống qua:
 - upload từ UI/API,
-- hoặc process theo đường dẫn file local.
+- process theo đường dẫn file local,
+- hoặc ingest từ **YouTube URL**.
 
 ### Bước 2: Auto-catalog
-Ngay đầu pipeline, hệ thống tự đảm bảo video có catalog entry cơ bản trong `data/video_catalog.json`.
+Ngay đầu pipeline, hệ thống tự đảm bảo video có catalog entry trong `data/video_catalog.json`.
 
 ### Bước 3: Extract
 - tách audio,
+- kiểm tra audio stream,
 - trích xuất frame theo thời gian.
 
 ### Bước 4: Transform
@@ -259,7 +278,7 @@ Caption theo từng frame.
 ### 9.4. `multimodal`
 Document kết hợp:
 - phần speech,
-- và phần visual gần theo thời gian.
+- phần visual gần theo thời gian.
 
 ---
 
@@ -339,11 +358,23 @@ Xử lý video theo đường dẫn file trên máy backend.
 ### `POST /upload-video`
 Upload video rồi xử lý toàn pipeline.
 
+### `POST /ingest-youtube`
+Ingest video từ YouTube URL rồi xử lý toàn pipeline.
+
+Ví dụ:
+
+```json
+{
+  "video_url": "https://www.youtube.com/watch?v=rLXcLBfDwvE",
+  "reset_index": true
+}
+```
+
 ---
 
 ## 12. Giao diện người dùng
 
-UI Streamlit gồm 4 tab:
+UI Streamlit gồm 5 tab:
 
 ### 12.1. Search
 - nhập query,
@@ -363,7 +394,14 @@ UI Streamlit gồm 4 tab:
 ### 12.3. Process by Path
 - xử lý video local theo đường dẫn tuyệt đối hoặc tương đối.
 
-### 12.4. Video Inventory
+### 12.4. Process by YouTube URL
+- nhập YouTube URL,
+- tải video về `data/raw`,
+- cập nhật source metadata,
+- chạy pipeline,
+- xem ingest result và pipeline result.
+
+### 12.5. Video Inventory
 - xem danh sách video đã index,
 - xem inventory chi tiết,
 - xem metadata nguồn,
@@ -395,8 +433,8 @@ Ví dụ CUDA:
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
-### 13.5. Cài FFmpeg
-Đảm bảo lệnh `ffmpeg` chạy được từ terminal.
+### 13.5. Cài FFmpeg / FFprobe
+Đảm bảo cả `ffmpeg` và `ffprobe` chạy được từ terminal.
 
 ---
 
@@ -424,7 +462,7 @@ pytest -v
 1. chạy FastAPI,
 2. chạy Streamlit,
 3. kiểm tra `data/video_catalog.json`,
-4. process video bằng **Process by Path** hoặc **Upload & Process**,
+4. ingest một video bằng **Process by YouTube URL** hoặc process video local,
 5. chờ pipeline hoàn tất,
 6. vào tab **Search** để thử query,
 7. kiểm tra **Video Inventory** để xem thống kê và metadata.
@@ -449,10 +487,23 @@ Caption từ BLIP là mô tả tự động tham khảo. Khi demo, nên xem:
 
 là các tín hiệu quan trọng hơn chỉ riêng câu caption.
 
-### 16.3. Metadata nguồn local
-Nếu xử lý video local mới mà không có source URL thật, hệ thống vẫn tự sinh metadata local cơ bản để inventory và UI hoạt động ổn định.
+### 16.3. Video nhạc / cinematic
+Với video chỉ có nhạc hoặc cinematic montage, Whisper vẫn có thể sinh transcript từ lyrics hoặc audio nền. Trong các case này, nên ưu tiên:
 
-### 16.4. Re-index sau khi đổi config
+- `caption`
+- `multimodal`
+
+hơn là tin hoàn toàn vào `transcription`.
+
+### 16.4. YouTube ingest chưa phải production-grade
+Flow YouTube hiện đã usable cho demo, nhưng vẫn phụ thuộc:
+
+- yt-dlp,
+- format availability,
+- ffmpeg / ffprobe,
+- thay đổi phía YouTube.
+
+### 16.5. Re-index sau khi đổi config
 Nếu thay đổi config hoặc cập nhật metadata, nên process lại video với `reset_index=True`.
 
 ---
@@ -464,9 +515,10 @@ Nếu thay đổi config hoặc cập nhật metadata, nên process lại video 
 - Có hybrid retrieval giữa text và CLIP.
 - Có event grouping và speech context.
 - Có inventory và metadata nguồn video.
+- Có YouTube ingest cho Bản 2.
 - Có API và UI để demo.
 - Có test cho các thành phần chính.
-- Có auto-catalog local cho video mới.
+- Có auto-catalog cho video local và video ingest từ URL.
 
 ---
 
@@ -474,16 +526,17 @@ Nếu thay đổi config hoặc cập nhật metadata, nên process lại video 
 
 - Chưa hướng tới production-scale.
 - Caption vẫn có thể khái quát hoặc chưa đủ fine-grained.
-- Các action rất ngắn hoặc rất tinh vi vẫn khó truy xuất tuyệt đối chính xác.
+- Một số object nhỏ hoặc khó phân biệt vẫn có thể bị caption nhầm.
+- Với video cinematic / music video, transcript có thể kém đáng tin hơn talk/TED.
 - Catalog hiện vẫn ở mức JSON prototype, chưa phải metadata store quy mô lớn.
-- Phù hợp nhất cho local processing / demo / đồ án.
+- Hiện tại mới hỗ trợ ingest **YouTube-only**, chưa mở rộng đa nền tảng.
 
 ---
 
 ## 19. Hướng phát triển
 
-- hỗ trợ ingest metadata tự động từ URL,
-- batch process nhiều video,
+- batch ingest YouTube từ danh sách URL,
+- hỗ trợ thêm nền tảng khác ngoài YouTube,
 - thêm đánh giá retrieval theo metric,
 - mở rộng quản lý catalog,
 - bổ sung dashboard monitoring,
@@ -501,6 +554,7 @@ Hệ thống hiện tại đã xây dựng được một **multimodal semantic 
 - vector indexing,
 - semantic search,
 - video inventory,
-- và metadata catalog cho kho video.
+- metadata catalog,
+- và ingest video từ YouTube URL.
 
 Đây là một prototype đủ rõ về mặt kỹ thuật để phục vụ demo đồ án theo định hướng **Kỹ thuật dữ liệu**, đồng thời đủ trực quan để trình diễn semantic search trên video qua API và UI.

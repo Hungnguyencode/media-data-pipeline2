@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import logging.config
+import re
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -13,7 +14,6 @@ from typing import Any, Dict, Generator, List, Optional
 
 import torch
 import yaml
-
 
 _CONFIG_CACHE: Optional[Dict[str, Any]] = None
 _VIDEO_CATALOG_CACHE: Optional[List[Dict[str, Any]]] = None
@@ -155,6 +155,13 @@ def _to_project_relative_path(path_value: str | Path) -> str:
         return str(path_obj).replace("\\", "/")
 
 
+def sanitize_filename_component(value: str, fallback: str = "video") -> str:
+    cleaned = (value or "").strip().lower()
+    cleaned = re.sub(r"[^\w\s-]", "", cleaned)
+    cleaned = re.sub(r"[-\s]+", "_", cleaned).strip("_")
+    return cleaned or fallback
+
+
 def build_auto_video_catalog_entry(
     video_path: str,
     source_url: str = "",
@@ -167,7 +174,6 @@ def build_auto_video_catalog_entry(
     now_iso = _now_iso_string()
 
     existing = existing_entry or {}
-
     existing_tags = _normalize_catalog_tags(existing.get("tags"))
     created_at = str(existing.get("created_at", "")).strip() or now_iso
 
@@ -185,7 +191,47 @@ def build_auto_video_catalog_entry(
         "created_at": created_at,
         "ingested_at": now_iso,
     }
+    return entry
 
+
+def build_video_catalog_entry_from_metadata(
+    *,
+    video_path: str,
+    source_platform: str,
+    source_url: str,
+    title: str,
+    description: str = "",
+    thumbnail_url: str = "",
+    tags: Optional[List[str]] = None,
+    existing_entry: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    video_file = Path(video_path).resolve()
+    video_name = video_file.name
+    now_iso = _now_iso_string()
+
+    existing = existing_entry or {}
+    created_at = str(existing.get("created_at", "")).strip() or now_iso
+
+    merged_tags = _normalize_catalog_tags(existing.get("tags"))
+    incoming_tags = _normalize_catalog_tags(tags or [])
+    seen_lower = {tag.lower() for tag in merged_tags}
+    for tag in incoming_tags:
+        if tag.lower() not in seen_lower:
+            merged_tags.append(tag)
+            seen_lower.add(tag.lower())
+
+    entry = {
+        "video_name": video_name,
+        "local_video_path": _to_project_relative_path(video_file),
+        "source_platform": str(source_platform).strip() or str(existing.get("source_platform", "")).strip() or "local",
+        "source_url": str(source_url).strip() or str(existing.get("source_url", "")).strip(),
+        "title": str(title).strip() or str(existing.get("title", "")).strip() or video_name,
+        "description": str(description).strip() or str(existing.get("description", "")).strip(),
+        "thumbnail_url": str(thumbnail_url).strip() or str(existing.get("thumbnail_url", "")).strip(),
+        "tags": merged_tags,
+        "created_at": created_at,
+        "ingested_at": now_iso,
+    }
     return entry
 
 
@@ -256,6 +302,38 @@ def ensure_video_catalog_entry(
     )
 
     return upsert_video_catalog_entry(auto_entry, config=config)
+
+
+def ensure_video_catalog_entry_from_metadata(
+    *,
+    video_path: str,
+    source_platform: str,
+    source_url: str,
+    title: str,
+    description: str = "",
+    thumbnail_url: str = "",
+    tags: Optional[List[str]] = None,
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    video_file = Path(video_path).resolve()
+    existing = get_video_catalog_entry(
+        video_file.name,
+        force_reload=True,
+        config=config,
+    )
+
+    entry = build_video_catalog_entry_from_metadata(
+        video_path=str(video_file),
+        source_platform=source_platform,
+        source_url=source_url,
+        title=title,
+        description=description,
+        thumbnail_url=thumbnail_url,
+        tags=tags,
+        existing_entry=existing,
+    )
+
+    return upsert_video_catalog_entry(entry, config=config)
 
 
 def normalize_device(device: Any = None) -> torch.device:

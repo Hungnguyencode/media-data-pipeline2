@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -39,7 +40,7 @@ def test_frame_extraction(tmp_path):
     assert len(frame_files) > 0
 
 
-@patch("src.extract.audio_extractor.shutil.which", return_value="/usr/bin/ffmpeg")
+@patch("src.extract.audio_extractor.shutil.which")
 @patch("src.extract.audio_extractor.subprocess.run")
 def test_audio_extraction(mock_run, mock_which, tmp_path):
     video_path = tmp_path / "dummy.mp4"
@@ -50,11 +51,34 @@ def test_audio_extraction(mock_run, mock_which, tmp_path):
 
     expected_audio = output_dir / "dummy.wav"
 
-    def fake_run(*args, **kwargs):
+    def fake_run(cmd, *args, **kwargs):
+        cmd_text = " ".join(cmd)
+        if "ffprobe" in cmd_text:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps({"streams": [{"codec_type": "audio"}]}),
+                stderr="",
+            )
+
         expected_audio.write_bytes(b"fake wav content")
-        return subprocess.CompletedProcess(args=args[0], returncode=0)
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
 
     mock_run.side_effect = fake_run
+
+    def fake_which(name):
+        if name == "ffmpeg":
+            return "/usr/bin/ffmpeg"
+        if name == "ffprobe":
+            return "/usr/bin/ffprobe"
+        return None
+
+    mock_which.side_effect = fake_which
 
     config = {
         "paths": {"interim_audio_dir": str(output_dir)}

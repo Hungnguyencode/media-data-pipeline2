@@ -24,8 +24,17 @@ Ví dụ với CUDA:
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
-### 1.5. Cài FFmpeg
-Đảm bảo lệnh `ffmpeg` chạy được trong terminal.
+### 1.5. Cài FFmpeg / FFprobe
+Đảm bảo cả `ffmpeg` và `ffprobe` chạy được trong terminal.
+
+### 1.6. Cài cache model trước nếu có thể
+Nếu đã từng chạy:
+- Whisper
+- BLIP
+- OpenCLIP
+- SentenceTransformers
+
+thì nên giữ cache model sẵn để lúc demo không bị tải model lại.
 
 ---
 
@@ -64,7 +73,7 @@ pytest -v
 
 Mục tiêu:
 - đảm bảo test pass trước khi demo,
-- xác nhận API, pipeline, retrieval và transform đang ổn.
+- xác nhận API, pipeline, retrieval, ingest và transform đang ổn.
 
 ---
 
@@ -107,30 +116,47 @@ Một entry điển hình:
 
 ```json
 {
-  "video_name": "egg.mp4",
-  "local_video_path": "data/raw/egg.mp4",
+  "video_name": "self_motivation_brendan_clark_tedxyouthbarnstablehs_rLXcLBfDwvE.mp4",
+  "local_video_path": "data/raw/self_motivation_brendan_clark_tedxyouthbarnstablehs_rLXcLBfDwvE.mp4",
   "source_platform": "youtube",
-  "source_url": "https://www.youtube.com/watch?v=zG9qOl0pCjU&t=183s",
-  "title": "5 Minutes, 2 Eggs! Quick and Easy Fluffy Souffle Omelette Recipe!",
-  "description": "Cooking tutorial demonstrating how to crack and separate eggs for baking.",
-  "thumbnail_url": "",
-  "tags": ["cooking", "egg", "tutorial"],
-  "created_at": "2026-03-27T00:00:00",
-  "ingested_at": "2026-03-27T00:00:00"
+  "source_url": "https://www.youtube.com/watch?v=rLXcLBfDwvE",
+  "title": "Self Motivation | Brendan Clark | TEDxYouth@BarnstableHS",
+  "description": "Youth speaker Brendan Clark shares his philosophy of motivation and the winning strategy.",
+  "thumbnail_url": "https://i.ytimg.com/vi/rLXcLBfDwvE/maxresdefault.jpg",
+  "tags": ["TEDxTalks", "English", "United States"],
+  "created_at": "2026-03-30T00:00:00",
+  "ingested_at": "2026-03-30T00:00:00"
 }
 ```
 
 ### Lưu ý quan trọng
 - `video_name` phải khớp tên file thật.
 - Nếu video local mới chưa có entry, pipeline hiện tại có thể **tự tạo catalog entry cơ bản**.
+- Nếu ingest bằng YouTube URL, hệ thống sẽ tự cập nhật metadata nguồn.
 - Nếu cậu sửa metadata nguồn bằng tay, nên **process lại video với reset index** để metadata mới đi vào vector DB.
 
 ---
 
-## 7. Hai cách đưa video vào hệ thống
+## 7. Ba cách đưa video vào hệ thống
 
-### Cách 1: Process by Path
-Đây là cách ổn định nhất khi demo.
+### Cách 1: Process by YouTube URL
+Đây là điểm mới quan trọng của Bản 2.
+
+Luồng:
+1. mở tab **Process by YouTube URL**
+2. nhập YouTube URL
+3. bật `reset_index`
+4. bấm **Download & Process**
+
+Hệ thống sẽ:
+- canonicalize URL,
+- tải video về `data/raw`,
+- lấy metadata nguồn,
+- cập nhật `video_catalog.json`,
+- chạy pipeline xử lý và index.
+
+### Cách 2: Process by Path
+Đây là cách ổn định nhất nếu video đã có sẵn local.
 
 Luồng:
 1. mở tab **Process by Path**
@@ -144,7 +170,7 @@ Ví dụ:
 C:\Users\Admin\media-data-pipeline2\data\raw\egg.mp4
 ```
 
-### Cách 2: Upload & Process
+### Cách 3: Upload & Process
 Luồng:
 1. mở tab **Upload & Process**
 2. chọn file video
@@ -152,9 +178,9 @@ Luồng:
 4. bấm **Upload & Process**
 
 ### Khác biệt thực tế
-- `Process by Path` thường dễ kiểm soát tên file hơn.
-- `Upload & Process` hiện lưu file vào `data/raw/` theo đúng tên file upload.
-- Nếu upload trùng tên file đã có, backend sẽ **ghi đè file cũ** rồi process lại.
+- `Process by YouTube URL`: tiện nhất để thể hiện Bản 2.
+- `Process by Path`: ổn định nhất nếu cậu đã có video local.
+- `Upload & Process`: tiện khi muốn nạp nhanh file demo từ máy.
 
 ---
 
@@ -169,39 +195,52 @@ Những nhóm video khá hợp với pipeline hiện tại:
 - wildlife / nature
 - fitness / yoga
 - product review / unboxing
+- cinematic vlog / short film
 
 ### Gợi ý thực tế
 - `egg.mp4` để demo action ngắn
 - `ted_happier.mp4` để demo semantic topic retrieval
-- video wildlife / tutorial khác để test độ đa dạng
+- `Self Motivation | Brendan Clark | TEDxYouth@BarnstableHS` để demo YouTube ingest + semantic topic search
+- wildlife / cinematic video để test độ đa dạng
 
 ---
 
-## 9. Luồng demo khuyến nghị
+## 9. Luồng demo khuyến nghị cho Bản 2
 
-### Bước 1
-Chạy API.
+### Demo 1: chứng minh ingest YouTube
+1. chạy API
+2. chạy Streamlit
+3. vào tab **Process by YouTube URL**
+4. nhập 1 YouTube URL sạch
+5. bấm **Download & Process**
+6. chỉ ra:
+   - video được tải về `data/raw`
+   - metadata nguồn được hiển thị
+   - pipeline chạy xong
+   - video xuất hiện trong inventory
 
-### Bước 2
-Chạy Streamlit.
+### Demo 2: chứng minh semantic search
+1. vào tab **Search**
+2. chọn video vừa ingest
+3. thử 2–3 query đẹp nhất
+4. giải thích:
+   - matched frame
+   - timestamp
+   - event range
+   - nearby speech context
+   - score type
+   - source metadata
 
-### Bước 3
-Kiểm tra `data/video_catalog.json`.
-
-### Bước 4
-Process video bằng **Process by Path** hoặc **Upload & Process**.
-
-### Bước 5
-Đợi pipeline hoàn tất.
-
-### Bước 6
-Vào tab **Video Inventory** để xác nhận:
-- video đã được index,
-- record counts đã có,
-- metadata nguồn hiển thị đúng.
-
-### Bước 7
-Vào tab **Search** để demo 2–3 query đẹp nhất.
+### Demo 3: chứng minh inventory
+1. vào tab **Video Inventory**
+2. mở chi tiết video
+3. cho thấy:
+   - total records
+   - content type counts
+   - source modality counts
+   - language
+   - source info
+   - time range
 
 ---
 
@@ -240,9 +279,11 @@ Vào tab **Search** để demo 2–3 query đẹp nhất.
 - `what makes people happier`
 - `relationships`
 - `happiness`
-- `kết nối con người`
-- `mối quan hệ với người khác`
-- `hạnh phúc đến từ đâu`
+- `self motivation`
+- `winning strategy`
+- `success mindset`
+- `motivational speech`
+- `TEDx speaker`
 
 ### 11.2. Với video trứng / cooking
 - `crack egg`
@@ -261,12 +302,12 @@ Vào tab **Search** để demo 2–3 query đẹp nhất.
 - `forest animals`
 - `underwater animals`
 
-### 11.4. Với tutorial / action video
-- `cutting`
-- `mixing ingredients`
-- `holding object`
-- `person using tools`
-- `fold paper`
+### 11.4. Với cinematic / vlog
+- `driving through forest`
+- `beach scene`
+- `summer sky`
+- `person walking outdoors`
+- `car on road`
 
 ---
 
@@ -277,10 +318,21 @@ Vào tab **Search** để demo 2–3 query đẹp nhất.
 - `segment_chunk`
 - `multimodal`
 
+Ví dụ:
+- `self motivation`
+- `winning strategy`
+- `happiness`
+- `relationships`
+
 ### Query thiên về hình ảnh / hành động / cảnh vật
 Ưu tiên:
 - `caption`
 - `multimodal`
+
+Ví dụ:
+- `crack egg`
+- `bird flying`
+- `car on forest road`
 
 ### Query thiên về lời nói
 Ưu tiên:
@@ -307,7 +359,7 @@ Mỗi kết quả thường có:
 - `source info`
 
 ### Giải thích ngắn gọn khi trình bày
-- **Matched frame description**: mô tả frame phù hợp nhất
+- **Matched frame description**: mô tả frame hoặc đoạn nội dung phù hợp nhất
 - **Auto-caption**: caption tự động, chỉ mang tính tham khảo
 - **Nearby speech context**: speech gần mốc thời gian đó
 - **Similarity proxy**: điểm tương đối từ kết quả retrieval
@@ -324,6 +376,7 @@ Mỗi kết quả thường có:
   - CLIP text-image
 - Hệ thống có **event grouping** để gom các frame gần nhau thành một kết quả dễ hiểu hơn.
 - Kết quả còn gắn với **metadata nguồn video** để hỗ trợ truy vết.
+- Bản 2 đã hỗ trợ **YouTube ingest**, giúp giảm thao tác thủ công khi đưa video vào hệ thống.
 
 ---
 
@@ -335,7 +388,8 @@ Có thể giải thích như sau:
 - Timestamp và matched frame là bằng chứng trực quan quan trọng hơn.
 - Với video khác nhau, sampling frame luôn là trade-off giữa:
   - temporal precision,
-  - và temporal coverage.
+  - temporal coverage.
+- Với video cinematic / music video, transcript có thể không đáng tin bằng talk/TED.
 - Mục tiêu hiện tại là prototype semantic search, chưa phải production-grade retrieval cho mọi loại video.
 
 ---
@@ -346,7 +400,8 @@ Có thể giải thích như sau:
 - Nếu thay config, nhớ restart backend.
 - Nếu đổi metadata catalog, nên re-index video.
 - Không nên đổi model lớn hơn ngay trước demo.
-- Không nên sửa thêm code retrieval ngay sát giờ demo nếu hệ thống hiện đã chạy ổn.
+- Không nên sửa thêm retrieval ngay sát giờ demo nếu hệ thống hiện đã chạy ổn.
+- Với YouTube ingest, nên dùng **URL sạch** dạng `https://www.youtube.com/watch?v=VIDEO_ID`.
 
 ---
 
@@ -354,12 +409,13 @@ Có thể giải thích như sau:
 
 - [ ] Tạo và activate virtual environment
 - [ ] `pip install -r requirements.txt`
-- [ ] `ffmpeg` chạy được trong terminal
+- [ ] `ffmpeg` và `ffprobe` chạy được trong terminal
 - [ ] `pytest -v`
 - [ ] `uvicorn api.main:app --host 127.0.0.1 --port 8000`
 - [ ] `streamlit run ui/app.py`
 - [ ] kiểm tra `configs/config.yaml`
 - [ ] kiểm tra `data/video_catalog.json`
+- [ ] thử ingest một video YouTube
 - [ ] process lại video cần demo
 - [ ] kiểm tra inventory
 - [ ] thử trước 2–3 query đẹp nhất cho từng video
@@ -370,7 +426,7 @@ Có thể giải thích như sau:
 
 1. chạy API  
 2. chạy Streamlit  
-3. process video  
+3. ingest video từ YouTube URL  
 4. mở Inventory để xác nhận video đã vào kho  
 5. search bằng 2–3 query đẹp nhất  
 6. giải thích:
@@ -384,20 +440,25 @@ Có thể giải thích như sau:
 
 ## 19. Query ưu tiên nếu cần demo nhanh
 
+### Video TED / motivation
+- `self motivation`
+- `winning strategy`
+- `motivational speech`
+
 ### Video trứng
 - `crack egg`
 - `separate egg`
 - `egg yolk`
 
-### Video TED
-- `human connection`
-- `happiness`
-- `relationships`
-
 ### Video wildlife
 - `bird flying`
 - `fish swimming`
 - `wildlife diversity`
+
+### Video cinematic
+- `summer sky`
+- `car on road`
+- `beach scene`
 
 ---
 
@@ -405,7 +466,7 @@ Có thể giải thích như sau:
 
 Bản hiện tại phù hợp nhất với demo theo hướng:
 
-- ingest video,
+- ingest video local hoặc YouTube,
 - extract audio và frame,
 - tạo transcript + caption + multimodal documents,
 - index vector,
@@ -417,4 +478,5 @@ Khi demo, nên tập trung vào:
 - pipeline rõ ràng,
 - hybrid retrieval,
 - timestamp / event grouping,
+- YouTube ingest của Bản 2,
 - và việc kết nối semantic search với kho video có metadata nguồn.

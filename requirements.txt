@@ -17,6 +17,7 @@ chromadb==0.5.5
 openai-whisper==20240930
 ffmpeg-python==0.2.0
 open-clip-torch==2.26.1
+yt-dlp
 
 pytest==8.3.3
 

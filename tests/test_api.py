@@ -10,6 +10,11 @@ class FakeSearchEngine:
         return [
             {
                 "document": "artificial intelligence introduction",
+                "display_text": "artificial intelligence introduction",
+                "display_caption": "artificial intelligence introduction",
+                "nearby_speech_context": "",
+                "group_size": 1,
+                "event_time_range": {"start": 1.0, "end": 2.0},
                 "metadata": {
                     "video_name": video_name or "demo.mp4",
                     "content_type": content_type or "transcription",
@@ -142,7 +147,7 @@ class FakePipeline:
             video_name=video_name,
         )
 
-    def process_video(self, video_path, reset_index=False):
+    def process_video(self, video_path, reset_index=False, source_metadata=None):
         return {
             "video_name": Path(video_path).name,
             "video_path": video_path,
@@ -154,10 +159,10 @@ class FakePipeline:
             "merged_output_path": "data/processed/demo_merged_output.json",
             "run_metadata_path": "data/processed/demo_run_metadata.json",
             "video_source_info": {
-                "source_platform": "youtube",
-                "source_url": "https://youtube.com/example",
-                "video_title": "Demo Video",
-                "video_description": "A demo video for testing.",
+                "source_platform": (source_metadata or {}).get("source_platform", "youtube"),
+                "source_url": (source_metadata or {}).get("source_url", "https://youtube.com/example"),
+                "video_title": (source_metadata or {}).get("video_title", "Demo Video"),
+                "video_description": (source_metadata or {}).get("video_description", "A demo video for testing."),
                 "thumbnail_url": "",
                 "video_tags": "demo|test",
                 "local_video_path": "data/raw/demo.mp4",
@@ -174,7 +179,23 @@ class FakePipeline:
         }
 
 
+class FakeYouTubeIngestor:
+    def ingest(self, video_url):
+        return {
+            "video_path": "data/raw/demo_youtube.mp4",
+            "video_name": "demo_youtube.mp4",
+            "source_platform": "youtube",
+            "source_url": "https://www.youtube.com/watch?v=abc123",
+            "video_title": "Demo YouTube Video",
+            "video_description": "A youtube demo video.",
+            "thumbnail_url": "https://img.youtube.com/vi/abc123/default.jpg",
+            "video_tags": ["demo", "youtube"],
+            "youtube_video_id": "abc123",
+        }
+
+
 api_main._pipeline = FakePipeline()
+api_main._youtube_ingestor = FakeYouTubeIngestor()
 client = TestClient(api_main.app)
 
 
@@ -184,6 +205,7 @@ def test_root():
     data = response.json()
     assert "message" in data
     assert "/search" in data["endpoints"]
+    assert "/ingest-youtube" in data["endpoints"]
 
 
 def test_health():
@@ -311,3 +333,22 @@ def test_process_video_success():
     assert data["multimodal_records"] == 2
     assert data["stage_status"]["index"] == "done"
     assert data["video_source_info"]["source_platform"] == "youtube"
+
+
+def test_ingest_youtube_success():
+    response = client.post(
+        "/ingest-youtube",
+        json={
+            "video_url": "https://www.youtube.com/watch?v=abc123&list=whatever",
+            "reset_index": True,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "ingest_result" in data
+    assert "result" in data
+    assert data["ingest_result"]["source_platform"] == "youtube"
+    assert data["ingest_result"]["source_url"] == "https://www.youtube.com/watch?v=abc123"
+    assert data["result"]["video_name"] == "demo_youtube.mp4"
+    assert data["result"]["video_source_info"]["video_title"] == "Demo YouTube Video"
