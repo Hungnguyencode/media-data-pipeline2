@@ -74,10 +74,11 @@ class FrameExtractor:
             logger.warning("Invalid FPS detected for '%s'. Defaulting to 1.0", video_file.name)
             video_fps = 1.0
 
-        frame_interval = max(1, int(video_fps / self.target_fps))
         frame_count = 0
         saved_count = 0
         failed_writes = 0
+        sample_period_sec = 1.0 / self.target_fps
+        next_sample_time = 0.0
 
         logger.info(
             "Extracting frames from %s | target_fps=%.2f | max_frames=%d",
@@ -91,12 +92,19 @@ class FrameExtractor:
             if not ret:
                 break
 
-            if frame_count % frame_interval == 0:
+            timestamp = frame_count / video_fps if video_fps > 0 else 0.0
+
+            should_sample = False
+            if saved_count == 0:
+                should_sample = True
+            elif timestamp + 1e-9 >= next_sample_time:
+                should_sample = True
+
+            if should_sample:
                 if saved_count >= self.max_frames:
                     logger.info("Reached max_frames=%d for %s", self.max_frames, video_file.name)
                     break
 
-                timestamp = frame_count / video_fps if video_fps > 0 else 0.0
                 frame_name = f"frame_{saved_count:04d}_{timestamp:.2f}s.jpg"
                 frame_path = output_dir / frame_name
 
@@ -105,6 +113,8 @@ class FrameExtractor:
 
                 if ok:
                     saved_count += 1
+                    while next_sample_time <= timestamp + 1e-9:
+                        next_sample_time += sample_period_sec
                 else:
                     failed_writes += 1
                     logger.warning("Failed to save frame: %s", frame_path)

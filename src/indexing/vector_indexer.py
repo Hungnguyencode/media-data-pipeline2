@@ -46,10 +46,13 @@ class VectorIndexer:
         self.caption_merge_window_sec = float(
             self.config.get("pipeline", {}).get("caption_merge_window_sec", 3.0)
         )
+        self.caption_dedup_min_gap_sec = float(
+            self.config.get("pipeline", {}).get("caption_dedup_min_gap_sec", 4.0)
+        )
         self.enable_multimodal_documents = bool(
             self.config.get("pipeline", {}).get("enable_multimodal_documents", True)
         )
-        self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "1.0.0"))
+        self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "2.1.0"))
 
         self.embedding_model = SentenceTransformer(self.embedding_model_name, device=str(self.device))
 
@@ -112,6 +115,12 @@ class VectorIndexer:
             "local_video_path": str(source.get("local_video_path", "")).strip(),
             "created_at": str(source.get("created_at", "")).strip(),
             "ingested_at": str(source.get("ingested_at", "")).strip(),
+            "ingest_method": str(source.get("ingest_method", "")).strip(),
+            "has_audio": source.get("has_audio"),
+            "video_type": str(source.get("video_type", "")).strip(),
+            "estimated_content_style": str(source.get("estimated_content_style", "")).strip(),
+            "recommended_search_mode": str(source.get("recommended_search_mode", "")).strip(),
+            "duration_sec": source.get("duration_sec"),
         }
 
     def _base_metadata(
@@ -171,7 +180,7 @@ class VectorIndexer:
     def _deduplicate_caption_records(
         self,
         captions_data: List[Dict[str, Any]],
-        min_time_gap_sec: float = 10.0,
+        min_time_gap_sec: float = 4.0,
     ) -> List[Dict[str, Any]]:
         deduped: List[Dict[str, Any]] = []
         last_seen_by_video_and_text: Dict[Tuple[str, str], float] = {}
@@ -185,12 +194,12 @@ class VectorIndexer:
         )
 
         for item in sorted_captions:
-            caption_text = (item.get("caption") or "").strip()
-            if not caption_text:
+            source_text = (item.get("caption") or "").strip()
+            if not source_text:
                 continue
 
             video_name = str(item.get("video_name", "")).strip()
-            normalized = self._normalize_caption_text(caption_text)
+            normalized = self._normalize_caption_text(source_text)
             if not normalized:
                 continue
 
@@ -312,6 +321,12 @@ class VectorIndexer:
             local_video_path = ""
             created_at = ""
             ingested_at = ""
+            ingest_method = ""
+            has_audio = None
+            video_type = ""
+            estimated_content_style = ""
+            recommended_search_mode = ""
+            duration_sec = None
 
             for meta in metadatas:
                 if not isinstance(meta, dict):
@@ -353,6 +368,18 @@ class VectorIndexer:
                     created_at = str(meta.get("created_at", "")).strip()
                 if not ingested_at:
                     ingested_at = str(meta.get("ingested_at", "")).strip()
+                if not ingest_method:
+                    ingest_method = str(meta.get("ingest_method", "")).strip()
+                if has_audio is None and meta.get("has_audio") is not None:
+                    has_audio = bool(meta.get("has_audio"))
+                if not video_type:
+                    video_type = str(meta.get("video_type", "")).strip()
+                if not estimated_content_style:
+                    estimated_content_style = str(meta.get("estimated_content_style", "")).strip()
+                if not recommended_search_mode:
+                    recommended_search_mode = str(meta.get("recommended_search_mode", "")).strip()
+                if duration_sec is None and meta.get("duration_sec") is not None:
+                    duration_sec = meta.get("duration_sec")
 
                 timestamp = meta.get("timestamp")
                 if timestamp is not None:
@@ -397,6 +424,12 @@ class VectorIndexer:
                     "local_video_path": local_video_path,
                     "created_at": created_at,
                     "ingested_at": ingested_at,
+                    "ingest_method": ingest_method,
+                    "has_audio": has_audio,
+                    "video_type": video_type,
+                    "estimated_content_style": estimated_content_style,
+                    "recommended_search_mode": recommended_search_mode,
+                    "duration_sec": duration_sec,
                 },
                 "time_range": {
                     "min_timestamp": min_timestamp,
@@ -557,7 +590,12 @@ class VectorIndexer:
         captions_data: List[Dict[str, Any]],
         video_source_info: Optional[Dict[str, Any]] = None,
     ) -> int:
-        captions_data = self._deduplicate_caption_records(captions_data, min_time_gap_sec=10.0)
+        dedup_gap_sec = float(getattr(self, "caption_dedup_min_gap_sec", 4.0))
+
+        captions_data = self._deduplicate_caption_records(
+            captions_data,
+            min_time_gap_sec=dedup_gap_sec,
+        )
         source_extra = self._prepare_source_extra(video_source_info)
 
         texts: List[str] = []
@@ -571,7 +609,9 @@ class VectorIndexer:
 
         for item in captions_data:
             caption = (item.get("caption") or "").strip()
+            search_text = (item.get("search_text") or caption).strip()
             clip_embedding = item.get("clip_embedding")
+            action_aliases = item.get("action_aliases") or []
 
             if not caption:
                 continue
@@ -585,6 +625,9 @@ class VectorIndexer:
                 **source_extra,
                 "clip_model_name": item.get("clip_model_name"),
                 "embedding_source": "blip_caption+clip_image",
+                "caption_text_original": caption,
+                "search_text": search_text,
+                "action_aliases": "|".join(str(a).strip() for a in action_aliases if str(a).strip()),
             }
 
             base_meta = self._base_metadata(

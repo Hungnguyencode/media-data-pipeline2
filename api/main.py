@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -8,9 +9,17 @@ from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from main_pipeline import MediaDataPipeline
-from src.utils import get_config, get_data_path, setup_logging
+from src.ingest.youtube_ingestor import YouTubeIngestor
+from src.utils import (
+    cleanup_video_artifacts,
+    get_config,
+    get_data_path,
+    get_video_catalog_entry,
+    setup_logging,
+)
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Media Semantic Search API")
 
@@ -26,6 +35,7 @@ ALLOWED_VIDEO_CONTENT_TYPES = {
 }
 
 _pipeline: Optional[MediaDataPipeline] = None
+_youtube_ingestor: Optional[YouTubeIngestor] = None
 
 
 def get_pipeline() -> MediaDataPipeline:
@@ -33,6 +43,13 @@ def get_pipeline() -> MediaDataPipeline:
     if _pipeline is None:
         _pipeline = MediaDataPipeline(get_config())
     return _pipeline
+
+
+def get_youtube_ingestor() -> YouTubeIngestor:
+    global _youtube_ingestor
+    if _youtube_ingestor is None:
+        _youtube_ingestor = YouTubeIngestor(get_config())
+    return _youtube_ingestor
 
 
 class SearchRequest(BaseModel):
@@ -45,6 +62,24 @@ class SearchRequest(BaseModel):
 class ProcessVideoRequest(BaseModel):
     video_path: str
     reset_index: bool = False
+
+
+class IngestYouTubeRequest(BaseModel):
+    video_url: str
+    reset_index: bool = False
+
+
+class VideoCleanupRequest(BaseModel):
+    delete_raw: bool = False
+    delete_audio: bool = False
+    delete_frames: bool = False
+    delete_interim_json: bool = False
+    delete_processed: bool = False
+    keep_catalog: bool = True
+
+
+class ReindexVideoRequest(BaseModel):
+    reset_index: bool = True
 
 
 def _format_search_result(result: dict) -> dict:
@@ -74,11 +109,14 @@ def root():
             "/search",
             "/process-video",
             "/upload-video",
-            "/stats",
+            "/ingest-youtube",
             "/videos",
             "/videos/inventory",
             "/videos/{video_name}",
+            "/videos/{video_name}/cleanup",
+            "/videos/{video_name}/reindex",
             "/health",
+            "/stats",
         ],
     }
 
@@ -157,6 +195,86 @@ def delete_video(video_name: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not delete video data: {e}") from e
+
+
+@app.post("/videos/{video_name}/cleanup")
+def cleanup_video(video_name: str, request: VideoCleanupRequest):
+    safe_video_name = video_name.strip()
+    if not safe_video_name:
+        raise HTTPException(status_code=400, detail="video_name must not be empty")
+
+    try:
+        result = cleanup_video_artifacts(
+            safe_video_name,
+            delete_raw=request.delete_raw,
+            delete_audio=request.delete_audio,
+            delete_frames=request.delete_frames,
+            delete_interim_json=request.delete_interim_json,
+            delete_processed=request.delete_processed,
+            keep_catalog=request.keep_catalog,
+            config=get_config(),
+        )
+        return {
+            "message": f"Cleanup completed for '{safe_video_name}'",
+            "cleanup_result": result,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not clean up artifacts: {e}") from e
+
+
+@app.post("/videos/{video_name}/reindex")
+def reindex_video(video_name: str, request: ReindexVideoRequest):
+    safe_video_name = video_name.strip()
+    if not safe_video_name:
+        raise HTTPException(status_code=400, detail="video_name must not be empty")
+
+    try:
+        entry = get_video_catalog_entry(safe_video_name, force_reload=True, config=get_config())
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Video not found in catalog: {safe_video_name}")
+
+        video_path = str(entry.get("local_video_path", "")).strip()
+        if not video_path:
+            raise HTTPException(status_code=400, detail=f"Catalog entry has no local_video_path: {safe_video_name}")
+
+        resolved_path = get_data_path(video_path)
+        if not resolved_path.exists():
+            raise HTTPException(status_code=404, detail=f"Local video file not found: {resolved_path}")
+
+        source_platform = str(entry.get("source_platform", "")).strip() or "local"
+        source_url = str(entry.get("source_url", "")).strip()
+        title = str(entry.get("title", safe_video_name)).strip() or safe_video_name
+        description = str(entry.get("description", "")).strip()
+        thumbnail_url = str(entry.get("thumbnail_url", "")).strip()
+        tags = entry.get("tags") or []
+
+        pipeline = get_pipeline()
+        result = pipeline.process_video(
+            str(resolved_path),
+            reset_index=request.reset_index,
+            source_metadata={
+                "source_platform": source_platform,
+                "source_url": source_url,
+                "video_title": title,
+                "video_description": description,
+                "thumbnail_url": thumbnail_url,
+                "video_tags": tags,
+                "ingest_method": str(entry.get("ingest_method", "local_file")).strip() or "local_file",
+                "has_audio": entry.get("has_audio"),
+                "video_type": str(entry.get("video_type", "")).strip(),
+                "estimated_content_style": str(entry.get("estimated_content_style", "")).strip(),
+                "recommended_search_mode": str(entry.get("recommended_search_mode", "")).strip(),
+                "duration_sec": entry.get("duration_sec"),
+            },
+        )
+        return {
+            "message": f"Re-indexed '{safe_video_name}' successfully",
+            "result": result,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not re-index video: {e}") from e
 
 
 @app.post("/search")
@@ -262,3 +380,42 @@ def upload_video(
             file.file.close()
         except Exception:
             pass
+
+
+@app.post("/ingest-youtube")
+def ingest_youtube(request: IngestYouTubeRequest):
+    raw_url = request.video_url.strip()
+    if not raw_url:
+        raise HTTPException(status_code=400, detail="video_url must not be empty")
+
+    try:
+        logger.info("Received YouTube ingest request: %s", raw_url)
+
+        ingestor = get_youtube_ingestor()
+        ingest_result = ingestor.ingest(raw_url)
+
+        logger.info(
+            "YouTube ingest metadata ready: %s -> %s",
+            ingest_result["source_url"],
+            ingest_result["video_name"],
+        )
+
+        pipeline = get_pipeline()
+        process_result = pipeline.process_video(
+            ingest_result["video_path"],
+            reset_index=request.reset_index,
+            source_metadata=ingest_result,
+        )
+
+        return {
+            "ingest_result": ingest_result,
+            "result": process_result,
+            "message": f"Ingested and processed YouTube video: {ingest_result['video_name']}",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("YouTube ingest failed")
+        raise HTTPException(status_code=500, detail=f"YouTube ingest failed: {e}") from e

@@ -128,6 +128,12 @@ VIDEO_SOURCE_INFO = {
     "local_video_path": "data/raw/demo.mp4",
     "created_at": "2026-03-27T00:00:00",
     "ingested_at": "2026-03-27T00:00:00",
+    "ingest_method": "youtube_url",
+    "has_audio": True,
+    "video_type": "talk",
+    "estimated_content_style": "talk",
+    "recommended_search_mode": "Talk mode",
+    "duration_sec": 180,
 }
 
 
@@ -155,6 +161,12 @@ def test_base_metadata_does_not_include_none_values():
     assert metadata["source_platform"] == "youtube"
     assert metadata["source_url"] == "https://youtube.com/example"
     assert metadata["video_title"] == "Demo Video"
+    assert metadata["ingest_method"] == "youtube_url"
+    assert metadata["has_audio"] is True
+    assert metadata["video_type"] == "talk"
+    assert metadata["estimated_content_style"] == "talk"
+    assert metadata["recommended_search_mode"] == "Talk mode"
+    assert metadata["duration_sec"] == 180
 
     assert "model_name" not in metadata
     assert "timestamp" not in metadata

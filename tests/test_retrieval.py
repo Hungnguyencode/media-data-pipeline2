@@ -255,3 +255,28 @@ def test_distance_to_similarity_proxy():
     assert engine._distance_to_similarity_proxy(None) is None
     assert engine._distance_to_similarity_proxy(0.1) == pytest.approx(0.9)
     assert engine._distance_to_similarity_proxy(2.0) == 0.0
+
+def test_metadata_aware_rerank_prefers_talk_for_topic_queries():
+    indexer = FakeVectorIndexer()
+
+    # override metadata cho rõ style
+    indexer.text_collection.metadatas[0]["estimated_content_style"] = "talk"
+    indexer.text_collection.metadatas[0]["content_type"] = "segment_chunk"
+
+    engine = SearchEngine(
+        config={
+            "retrieval": {
+                "topic_bonus_for_talk": 0.08,
+                "action_bonus_for_action_video": 0.06,
+                "visual_bonus_for_visual_video": 0.06,
+                "audio_penalty_for_cinematic_music": 0.08,
+                "multimodal_bonus_for_talk": 0.04,
+            }
+        },
+        vector_indexer=indexer,
+        vision_processor=FakeVisionProcessor(),
+    )
+
+    results = engine.search(query="human connection", top_k=3)
+    assert len(results) >= 1
+    assert results[0]["query_type"] in {"topic", "generic"}

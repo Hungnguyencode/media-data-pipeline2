@@ -60,7 +60,7 @@ class WhisperProcessor:
         transcribe_kwargs = {
             "audio": str(audio_path),
             "task": "transcribe",
-            "fp16": (self.use_fp16 and self.device.type == "cuda"),
+            "fp16": (self.use_fp16 and getattr(self.device, "type", str(self.device)) == "cuda"),
             "verbose": False,
         }
 
@@ -69,6 +69,55 @@ class WhisperProcessor:
             transcribe_kwargs["language"] = language
 
         return self.model.transcribe(**transcribe_kwargs)
+
+    def _should_fallback_to_cpu(self, error: Exception) -> bool:
+        if not self.fallback_to_cpu_on_oom:
+            return False
+
+        device_type = getattr(self.device, "type", str(self.device))
+        if device_type != "cuda":
+            return False
+
+        err = str(error).lower()
+        fallback_markers = [
+            "out of memory",
+            "cuda",
+            "cublas",
+            "cudnn",
+            "device-side assert",
+            "device unavailable",
+            "no kernel image is available",
+            "failed to initialize cuda",
+        ]
+        return any(marker in err for marker in fallback_markers)
+
+    def _transcribe_with_fallback(self, audio_path: str) -> Dict[str, Any]:
+        try:
+            return self._transcribe_once(audio_path)
+        except Exception as e:
+            if not self._should_fallback_to_cpu(e):
+                raise
+
+            logger.warning(
+                "Whisper failed on CUDA for %s with error: %s. Falling back to CPU.",
+                Path(audio_path).name,
+                e,
+            )
+
+            self.unload_model()
+            self._load_model(device="cpu")
+
+            try:
+                return self._transcribe_once(audio_path)
+            except Exception as cpu_error:
+                logger.error(
+                    "Whisper transcription failed on both CUDA and CPU for %s: %s",
+                    Path(audio_path).name,
+                    cpu_error,
+                )
+                raise RuntimeError(
+                    f"Failed to transcribe audio {audio_path} after CPU fallback: {cpu_error}"
+                ) from cpu_error
 
     def transcribe(self, audio_path: str, video_name: Optional[str] = None) -> Dict[str, Any]:
         audio_file = Path(audio_path)
@@ -79,17 +128,9 @@ class WhisperProcessor:
         logger.info("Transcribing audio: %s", audio_file.name)
 
         try:
-            raw_result = self._transcribe_once(str(audio_file))
-        except RuntimeError as e:
-            err = str(e).lower()
-            if "out of memory" in err and self.device.type == "cuda" and self.fallback_to_cpu_on_oom:
-                logger.warning("CUDA OOM in Whisper. Falling back to CPU for %s", audio_file.name)
-                self.unload_model()
-                self._load_model(device="cpu")
-                raw_result = self._transcribe_once(str(audio_file))
-            else:
-                logger.error("Whisper transcription failed for %s: %s", audio_file.name, e)
-                raise RuntimeError(f"Failed to transcribe audio {audio_path}: {e}") from e
+            raw_result = self._transcribe_with_fallback(str(audio_file))
+        except RuntimeError:
+            raise
         except Exception as e:
             logger.error("Whisper transcription failed for %s: %s", audio_file.name, e)
             raise RuntimeError(f"Failed to transcribe audio {audio_path}: {e}") from e

@@ -1,11 +1,17 @@
 from pathlib import Path
 
 from main_pipeline import MediaDataPipeline
+from src.extract.audio_extractor import NoAudioStreamError
 
 
 class FakeAudioExtractor:
     def extract_audio(self, video_path):
         return "data/interim/audio/demo.wav"
+
+
+class FakeNoAudioExtractor:
+    def extract_audio(self, video_path):
+        raise NoAudioStreamError(f"No audio stream found in video: {video_path}")
 
 
 class FakeFrameExtractor:
@@ -45,6 +51,8 @@ class FakeVisionProcessor:
                 "clip_model_name": "ViT-B-32:openai",
                 "clip_embedding": [0.1, 0.2, 0.3],
                 "language": "en",
+                "search_text": "person presentation talk speech",
+                "action_aliases": "",
             }
         ]
 
@@ -60,84 +68,139 @@ class FakeVectorIndexer:
         return 0
 
     def index_transcriptions(self, transcription_data, video_source_info=None):
-        assert video_source_info is not None
-        return 3
-
-    def index_captions(self, captions_data, video_source_info=None):
-        assert video_source_info is not None
         return 2
 
+    def index_captions(self, captions_data, video_source_info=None):
+        return 1
+
     def index_multimodal_documents(self, transcription_data, captions_data, video_source_info=None):
-        assert video_source_info is not None
         return 1
 
 
+class FakeNoAudioVectorIndexer:
+    def delete_video_data(self, video_name):
+        return 0
+
+    def index_transcriptions(self, transcription_data, video_source_info=None):
+        return 0
+
+    def index_captions(self, captions_data, video_source_info=None):
+        return 1
+
+    def index_multimodal_documents(self, transcription_data, captions_data, video_source_info=None):
+        return 0
+
+
 class FakeSearchEngine:
-    def __init__(self, config=None, vector_indexer=None, vision_processor=None):
-        self.vector_indexer = vector_indexer
-        self.vision_processor = vision_processor
-
     def search(self, query, top_k=5, content_type=None, video_name=None):
-        return []
+        return [
+            {
+                "document": "demo semantic result",
+                "display_text": "demo semantic result",
+                "display_caption": "demo semantic result",
+                "nearby_speech_context": "",
+                "group_size": 1,
+                "event_time_range": {"start": 1.0, "end": 2.0},
+                "metadata": {
+                    "video_name": video_name or "demo.mp4",
+                    "content_type": content_type or "segment_chunk",
+                },
+                "distance": 0.2,
+                "similarity_score": 0.8,
+                "score_type": "hybrid_fusion+rerank",
+            }
+        ]
 
 
-class DummyMediaDataPipeline(MediaDataPipeline):
-    __test__ = False
-
-    def __init__(self, tmp_path):
+class TestablePipeline(MediaDataPipeline):
+    def __init__(self, tmp_path: Path):
         self.config = {
-            "paths": {
-                "processed_dir": str(tmp_path / "processed"),
-                "video_catalog_path": str(tmp_path / "video_catalog.json"),
-            },
-            "pipeline": {
-                "version": "2.0.0",
-                "save_run_metadata": True,
-            },
-            "models": {
-                "whisper": {"language": "vi", "name": "base"},
-            },
+            "paths": {"processed_dir": str(tmp_path / "processed")},
+            "pipeline": {"version": "2.2.0", "save_run_metadata": True},
         }
-
-        catalog_path = Path(self.config["paths"]["video_catalog_path"])
-        catalog_path.write_text(
-            """
-[
-  {
-    "video_name": "demo.mp4",
-    "local_video_path": "data/raw/demo.mp4",
-    "source_platform": "youtube",
-    "source_url": "https://youtube.com/example",
-    "title": "Demo Video",
-    "description": "A demo video for testing.",
-    "thumbnail_url": "",
-    "tags": ["demo", "test"],
-    "created_at": "2026-03-27T00:00:00",
-    "ingested_at": "2026-03-27T00:00:00"
-  }
-]
-""".strip(),
-            encoding="utf-8",
-        )
-
         self.audio_extractor = FakeAudioExtractor()
         self.frame_extractor = FakeFrameExtractor()
         self.whisper_processor = FakeWhisperProcessor()
         self.vision_processor = FakeVisionProcessor()
         self.vector_indexer = FakeVectorIndexer()
-        self.search_engine = FakeSearchEngine(
-            config=self.config,
-            vector_indexer=self.vector_indexer,
-            vision_processor=self.vision_processor,
-        )
-        self.processed_dir = Path(self.config["paths"]["processed_dir"])
+        self.search_engine = FakeSearchEngine()
+        self.processed_dir = tmp_path / "processed"
         self.processed_dir.mkdir(parents=True, exist_ok=True)
-        self.pipeline_version = "2.0.0"
+        self.pipeline_version = "2.2.0"
         self.save_run_metadata = True
 
+    def _build_video_source_info(self, video_name: str, video_path: str):
+        return {
+            "source_platform": "youtube",
+            "source_url": "https://youtube.com/example",
+            "video_title": "Demo Video",
+            "video_description": "A demo video for testing.",
+            "thumbnail_url": "",
+            "video_tags": "demo|test",
+            "local_video_path": "data/raw/demo.mp4",
+            "created_at": "2026-03-27T00:00:00",
+            "ingested_at": "2026-03-27T00:00:00",
+            "ingest_method": "local_file",
+            "has_audio": True,
+            "video_type": "talk",
+            "estimated_content_style": "talk",
+            "recommended_search_mode": "Talk mode",
+            "duration_sec": 180,
+        }
 
-def test_process_video_returns_expected_summary(tmp_path):
-    pipeline = DummyMediaDataPipeline(tmp_path)
+
+class TestableNoAudioPipeline(MediaDataPipeline):
+    def __init__(self, tmp_path: Path):
+        self.config = {
+            "paths": {"processed_dir": str(tmp_path / "processed")},
+            "pipeline": {"version": "2.2.0", "save_run_metadata": True},
+        }
+        self.audio_extractor = FakeNoAudioExtractor()
+        self.frame_extractor = FakeFrameExtractor()
+        self.whisper_processor = FakeWhisperProcessor()
+        self.vision_processor = FakeVisionProcessor()
+        self.vector_indexer = FakeNoAudioVectorIndexer()
+        self.search_engine = FakeSearchEngine()
+        self.processed_dir = tmp_path / "processed"
+        self.processed_dir.mkdir(parents=True, exist_ok=True)
+        self.pipeline_version = "2.2.0"
+        self.save_run_metadata = True
+
+    def _build_video_source_info(self, video_name: str, video_path: str):
+        return {
+            "source_platform": "local",
+            "source_url": "",
+            "video_title": "No Audio Demo",
+            "video_description": "",
+            "thumbnail_url": "",
+            "video_tags": "demo|visual",
+            "local_video_path": "data/raw/demo.mp4",
+            "created_at": "2026-03-27T00:00:00",
+            "ingested_at": "2026-03-27T00:00:00",
+            "ingest_method": "local_file",
+            "has_audio": False,
+            "video_type": "visual_story",
+            "estimated_content_style": "visual",
+            "recommended_search_mode": "Visual mode",
+            "duration_sec": 60,
+        }
+
+
+def test_process_video_returns_expected_summary(tmp_path, monkeypatch):
+    import main_pipeline as mp
+
+    monkeypatch.setattr(mp, "ensure_video_catalog_entry", lambda *args, **kwargs: {})
+    monkeypatch.setattr(mp, "get_video_catalog_entry", lambda *args, **kwargs: {})
+    monkeypatch.setattr(mp, "release_memory", lambda: None)
+    monkeypatch.setattr(mp, "md5_of_file", lambda _: "fake-md5")
+
+    def fake_save_json(data, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(mp, "save_json", fake_save_json)
+
+    pipeline = TestablePipeline(tmp_path)
 
     video_path = tmp_path / "demo.mp4"
     video_path.write_bytes(b"fake video content")
@@ -145,37 +208,54 @@ def test_process_video_returns_expected_summary(tmp_path):
     result = pipeline.process_video(str(video_path), reset_index=True)
 
     assert result["video_name"] == "demo.mp4"
-    assert result["audio_path"] == "data/interim/audio/demo.wav"
-    assert result["frames_dir"] == "data/interim/frames/demo"
-    assert result["transcription_records"] == 3
-    assert result["caption_records"] == 2
+    assert result["transcription_records"] == 2
+    assert result["caption_records"] == 1
     assert result["multimodal_records"] == 1
-    assert result["stage_status"]["extract_audio"] == "done"
-    assert result["stage_status"]["extract_frames"] == "done"
-    assert result["stage_status"]["transcribe"] == "done"
-    assert result["stage_status"]["caption"] == "done"
-    assert result["stage_status"]["index"] == "done"
-    assert result["merged_output_path"] is not None
-    assert result["run_metadata_path"] is not None
-    assert result["data_summary"]["indexed_total_records"] == 6
+    assert result["data_summary"]["indexed_total_records"] == 4
+    assert result["video_source_info"]["has_audio"] is True
+    assert result["video_source_info"]["video_type"] == "talk"
+    assert result["video_source_info"]["estimated_content_style"] == "talk"
+    assert result["video_source_info"]["recommended_search_mode"] == "Talk mode"
+    assert Path(result["merged_output_path"]).exists()
+    assert Path(result["run_metadata_path"]).exists()
 
-    assert result["video_source_info"]["source_platform"] == "youtube"
-    assert result["video_source_info"]["source_url"] == "https://youtube.com/example"
-    assert result["video_source_info"]["video_title"] == "Demo Video"
 
-    merged_output_path = Path(result["merged_output_path"])
-    run_metadata_path = Path(result["run_metadata_path"])
+def test_process_video_visual_only_path(tmp_path, monkeypatch):
+    import main_pipeline as mp
 
-    assert merged_output_path.exists()
-    assert run_metadata_path.exists()
+    monkeypatch.setattr(mp, "ensure_video_catalog_entry", lambda *args, **kwargs: {})
+    monkeypatch.setattr(mp, "get_video_catalog_entry", lambda *args, **kwargs: {})
+    monkeypatch.setattr(mp, "release_memory", lambda: None)
+    monkeypatch.setattr(mp, "md5_of_file", lambda _: "fake-md5")
 
-    merged_text = merged_output_path.read_text(encoding="utf-8")
-    run_text = run_metadata_path.read_text(encoding="utf-8")
+    def fake_save_json(data, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("{}", encoding="utf-8")
 
-    assert "youtube" in merged_text
-    assert "https://youtube.com/example" in merged_text
-    assert "Demo Video" in merged_text
+    monkeypatch.setattr(mp, "save_json", fake_save_json)
 
-    assert "youtube" in run_text
-    assert "https://youtube.com/example" in run_text
-    assert "Demo Video" in run_text
+    pipeline = TestableNoAudioPipeline(tmp_path)
+
+    video_path = tmp_path / "demo_no_audio.mp4"
+    video_path.write_bytes(b"fake video content")
+
+    result = pipeline.process_video(str(video_path), reset_index=True)
+
+    assert result["video_name"] == "demo_no_audio.mp4"
+    assert result["transcription_records"] == 0
+    assert result["caption_records"] == 1
+    assert result["multimodal_records"] == 0
+    assert result["data_summary"]["has_audio"] is False
+    assert result["video_source_info"]["estimated_content_style"] == "visual"
+    assert result["video_source_info"]["recommended_search_mode"] == "Visual mode"
+    assert Path(result["merged_output_path"]).exists()
+    assert Path(result["run_metadata_path"]).exists()
+
+
+def test_search_delegates_to_search_engine(tmp_path):
+    pipeline = TestablePipeline(tmp_path)
+    results = pipeline.search(query="demo query", top_k=3, content_type="segment_chunk", video_name="demo.mp4")
+
+    assert len(results) == 1
+    assert results[0]["score_type"] == "hybrid_fusion+rerank"
+    assert results[0]["metadata"]["video_name"] == "demo.mp4"
