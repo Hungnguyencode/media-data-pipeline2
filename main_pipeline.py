@@ -18,6 +18,7 @@ from src.utils import (
     get_data_path,
     get_video_catalog_entry,
     md5_of_file,
+    normalize_source_metadata_for_pipeline,
     release_memory,
     save_json,
     setup_logging,
@@ -48,7 +49,7 @@ class MediaDataPipeline:
         )
         self.processed_dir.mkdir(parents=True, exist_ok=True)
 
-        self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "1.0.0"))
+        self.pipeline_version = str(self.config.get("pipeline", {}).get("version", "2.2.0"))
         self.save_run_metadata = bool(self.config.get("pipeline", {}).get("save_run_metadata", True))
 
     def _build_base_result(self, video_path: str) -> Dict[str, Any]:
@@ -65,7 +66,6 @@ class MediaDataPipeline:
             "run_metadata_path": None,
             "stage_metrics_sec": {},
             "data_summary": {},
-            "video_source_info": {},
             "stage_status": {
                 "extract_audio": "pending",
                 "extract_frames": "pending",
@@ -79,32 +79,23 @@ class MediaDataPipeline:
         result["stage_status"][stage_name] = status
 
     def _build_video_source_info(self, video_name: str, video_path: str) -> Dict[str, Any]:
-        entry = get_video_catalog_entry(
-            video_name,
-            force_reload=True,
-            config=self.config,
-        ) or {}
-
-        local_video_path = entry.get("local_video_path") or video_path
-        tags = entry.get("tags") or []
-
-        if isinstance(tags, list):
-            normalized_tags = [str(tag).strip() for tag in tags if str(tag).strip()]
-            video_tags = "|".join(normalized_tags)
-        else:
-            video_tags = str(tags).strip()
-
+        entry = get_video_catalog_entry(video_name, force_reload=True, config=self.config) or {}
         return {
-            "video_name": video_name,
-            "local_video_path": str(local_video_path),
-            "source_platform": str(entry.get("source_platform", "local")).strip() or "local",
+            "source_platform": str(entry.get("source_platform", "")).strip(),
             "source_url": str(entry.get("source_url", "")).strip(),
-            "video_title": str(entry.get("title", video_name)).strip() or video_name,
+            "video_title": str(entry.get("title", video_name)).strip(),
             "video_description": str(entry.get("description", "")).strip(),
             "thumbnail_url": str(entry.get("thumbnail_url", "")).strip(),
-            "video_tags": video_tags,
+            "video_tags": entry.get("tags") or [],
+            "local_video_path": str(entry.get("local_video_path", "")).strip() or str(video_path),
             "created_at": str(entry.get("created_at", "")).strip(),
             "ingested_at": str(entry.get("ingested_at", "")).strip(),
+            "ingest_method": str(entry.get("ingest_method", "local_file")).strip() or "local_file",
+            "has_audio": entry.get("has_audio"),
+            "video_type": str(entry.get("video_type", "")).strip(),
+            "estimated_content_style": str(entry.get("estimated_content_style", "")).strip(),
+            "recommended_search_mode": str(entry.get("recommended_search_mode", "")).strip(),
+            "duration_sec": entry.get("duration_sec"),
         }
 
     def process_video(
@@ -131,24 +122,54 @@ class MediaDataPipeline:
         if not video_file.exists():
             raise FileNotFoundError(f"Video file not found: {video_path}")
 
+        normalized_source = normalize_source_metadata_for_pipeline(
+            source_metadata,
+            video_path=video_path,
+            fallback_platform="local",
+        )
+
         if source_metadata:
             logger.info("Applying external source metadata for %s", video_name)
             ensure_video_catalog_entry_from_metadata(
                 video_path=video_path,
-                source_platform=str(source_metadata.get("source_platform", "local")).strip() or "local",
-                source_url=str(source_metadata.get("source_url", "")).strip(),
-                title=str(source_metadata.get("video_title", video_name)).strip() or video_name,
-                description=str(source_metadata.get("video_description", "")).strip(),
-                thumbnail_url=str(source_metadata.get("thumbnail_url", "")).strip(),
-                tags=source_metadata.get("video_tags") or [],
+                source_platform=normalized_source["source_platform"],
+                source_url=normalized_source["source_url"],
+                title=normalized_source["video_title"],
+                description=normalized_source["video_description"],
+                thumbnail_url=normalized_source["thumbnail_url"],
+                tags=normalized_source["video_tags"],
                 config=self.config,
             )
         else:
             ensure_video_catalog_entry(
                 video_path=video_path,
                 config=self.config,
-                source_platform="local",
+                source_platform=normalized_source["source_platform"],
+                source_url=normalized_source["source_url"],
             )
+
+        # upsert lại metadata mở rộng
+        extended_entry = get_video_catalog_entry(video_name, force_reload=True, config=self.config) or {}
+        extended_entry.update(
+            {
+                "video_name": video_name,
+                "local_video_path": normalized_source["local_video_path"],
+                "source_platform": normalized_source["source_platform"],
+                "source_url": normalized_source["source_url"],
+                "title": normalized_source["video_title"],
+                "description": normalized_source["video_description"],
+                "thumbnail_url": normalized_source["thumbnail_url"],
+                "tags": normalized_source["video_tags"],
+                "ingest_method": normalized_source["ingest_method"],
+                "has_audio": normalized_source["has_audio"],
+                "video_type": normalized_source["video_type"],
+                "estimated_content_style": normalized_source["estimated_content_style"],
+                "recommended_search_mode": normalized_source["recommended_search_mode"],
+                "duration_sec": normalized_source["duration_sec"],
+            }
+        )
+        from src.utils import upsert_video_catalog_entry
+        upsert_video_catalog_entry(extended_entry, config=self.config)
 
         video_source_info = self._build_video_source_info(video_name, video_path)
         result["video_source_info"] = video_source_info
@@ -170,74 +191,53 @@ class MediaDataPipeline:
                     audio_path = self.audio_extractor.extract_audio(video_path)
                     result["audio_path"] = audio_path
                     self._mark_stage(result, "extract_audio", "done")
+                    video_source_info["has_audio"] = True
                 except NoAudioStreamError:
                     logger.warning("No audio stream for %s. Continuing with visual-only pipeline.", video_name)
                     audio_path = None
-                    result["audio_path"] = None
                     self._mark_stage(result, "extract_audio", "skipped_no_audio")
-        except Exception:
-            self._mark_stage(result, "extract_audio", "failed")
-            raise
+                    video_source_info["has_audio"] = False
 
-        try:
             with stage_timer("extract_frames", stage_metrics):
                 frames_dir = self.frame_extractor.extract_frames(video_path)
                 result["frames_dir"] = frames_dir
                 self._mark_stage(result, "extract_frames", "done")
-        except Exception:
-            self._mark_stage(result, "extract_frames", "failed")
-            raise
 
-        if audio_path:
-            try:
+            if reset_index:
+                self.vector_indexer.delete_video_data(video_name)
+
+            if audio_path:
                 with stage_timer("transcribe", stage_metrics):
                     transcription_data = self.whisper_processor.transcribe(audio_path, video_name=video_name)
-                    transcription_data["video_source_info"] = video_source_info
-                    self._mark_stage(result, "transcribe", "done")
-            except Exception:
-                self._mark_stage(result, "transcribe", "failed")
-                raise
-        else:
-            self._mark_stage(result, "transcribe", "skipped_no_audio")
-
-        try:
-            with stage_timer("caption", stage_metrics):
-                captions_data = self.vision_processor.process_frames(frames_dir, video_name=video_name)
-                self._mark_stage(result, "caption", "done")
-        except Exception:
-            self._mark_stage(result, "caption", "failed")
-            raise
-
-        try:
-            with stage_timer("index", stage_metrics):
-                if reset_index:
-                    self.vector_indexer.delete_video_data(video_name)
-
-                if transcription_data:
                     trans_count = self.vector_indexer.index_transcriptions(
                         transcription_data,
                         video_source_info=video_source_info,
                     )
-                else:
-                    trans_count = 0
+                    self._mark_stage(result, "transcribe", "done")
+            else:
+                self._mark_stage(result, "transcribe", "skipped_no_audio")
 
+            with stage_timer("caption", stage_metrics):
+                captions_data = self.vision_processor.process_frames(frames_dir, video_name=video_name)
                 cap_count = self.vector_indexer.index_captions(
-                    captions_data or [],
+                    captions_data,
                     video_source_info=video_source_info,
                 )
+                self._mark_stage(result, "caption", "done")
 
-                if transcription_data:
+            with stage_timer("index", stage_metrics):
+                if transcription_data and captions_data:
                     multi_count = self.vector_indexer.index_multimodal_documents(
                         transcription_data,
-                        captions_data or [],
+                        captions_data,
                         video_source_info=video_source_info,
                     )
                 else:
                     multi_count = 0
-
                 self._mark_stage(result, "index", "done")
+
         except Exception:
-            self._mark_stage(result, "index", "failed")
+            release_memory()
             raise
 
         data_summary = {
@@ -245,25 +245,24 @@ class MediaDataPipeline:
             "transcription_records": trans_count,
             "caption_records": cap_count,
             "multimodal_records": multi_count,
-            "num_transcript_segments": len(transcription_data.get("segments", [])) if transcription_data else 0,
-            "num_caption_frames": len(captions_data) if captions_data else 0,
-            "audio_available": audio_path is not None,
+            "has_audio": video_source_info.get("has_audio"),
+            "video_type": video_source_info.get("video_type"),
+            "estimated_content_style": video_source_info.get("estimated_content_style"),
+            "recommended_search_mode": video_source_info.get("recommended_search_mode"),
         }
 
         merged_output = {
             "video_name": video_name,
-            "video_path": video_path,
             "pipeline_version": self.pipeline_version,
             "video_source_info": video_source_info,
-            "runtime_metadata": runtime_metadata,
-            "stage_metrics_sec": stage_metrics,
-            "stage_status": result["stage_status"],
-            "indexing_summary": data_summary,
-            "outputs": {
-                "audio_path": audio_path,
-                "frames_dir": frames_dir,
-                "transcription": transcription_data,
-                "captions": captions_data,
+            "data_summary": data_summary,
+            "available_fields": {
+                "frame_name": "Tên frame ảnh",
+                "timestamp": "Mốc thời gian theo giây",
+                "content_type": "Loại tài liệu index",
+                "source_modality": "Nguồn dữ liệu: audio/image/audio+image",
+                "model_name": "Tên model dùng để sinh dữ liệu",
+                "pipeline_version": "Phiên bản pipeline",
             },
         }
 
@@ -283,7 +282,6 @@ class MediaDataPipeline:
                 "stage_status": result["stage_status"],
                 "stage_metrics_sec": stage_metrics,
                 "runtime_metadata": runtime_metadata,
-                "video_source_info": video_source_info,
                 "indexing_summary": data_summary,
             }
             run_metadata_path = self.processed_dir / f"{Path(video_name).stem}_run_metadata.json"
@@ -293,13 +291,12 @@ class MediaDataPipeline:
         release_memory()
 
         logger.info(
-            "Pipeline completed for '%s' | transcription=%d | caption=%d | multimodal=%d",
+            "Pipeline finished for '%s'. Indexed %d transcription, %d caption, %d multimodal records.",
             video_name,
             trans_count,
             cap_count,
             multi_count,
         )
-
         return result
 
     def search(
@@ -317,28 +314,38 @@ class MediaDataPipeline:
         )
 
 
-def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Media data pipeline")
-    parser.add_argument("--video", required=True, help="Path to input video")
+def main():
+    setup_logging()
+
+    parser = argparse.ArgumentParser(description="Media Data Pipeline")
+    parser.add_argument("--video", type=str, help="Path to video file")
+    parser.add_argument("--query", type=str, help="Semantic query")
+    parser.add_argument("--top-k", type=int, default=5, help="Top K results")
+    parser.add_argument("--content-type", type=str, default=None, help="Filter by content type")
+    parser.add_argument("--video-name", type=str, default=None, help="Filter by video name")
     parser.add_argument(
         "--reset-index",
         action="store_true",
-        help="Delete previous indexed records of this video before re-indexing",
+        help="Delete previous indexed data for this video before re-index",
     )
-    return parser
-
-
-def main() -> None:
-    setup_logging()
-    parser = build_arg_parser()
     args = parser.parse_args()
 
-    pipeline = MediaDataPipeline(get_config())
-    result = pipeline.process_video(args.video, reset_index=args.reset_index)
+    pipeline = MediaDataPipeline()
 
-    print("\n=== PIPELINE RESULT ===")
-    for key, value in result.items():
-        print(f"{key}: {value}")
+    if args.video:
+        result = pipeline.process_video(args.video, reset_index=args.reset_index)
+        print(result)
+    elif args.query:
+        results = pipeline.search(
+            query=args.query,
+            top_k=args.top_k,
+            content_type=args.content_type,
+            video_name=args.video_name,
+        )
+        for item in results:
+            print(item)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":

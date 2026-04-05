@@ -115,6 +115,12 @@ class VectorIndexer:
             "local_video_path": str(source.get("local_video_path", "")).strip(),
             "created_at": str(source.get("created_at", "")).strip(),
             "ingested_at": str(source.get("ingested_at", "")).strip(),
+            "ingest_method": str(source.get("ingest_method", "")).strip(),
+            "has_audio": source.get("has_audio"),
+            "video_type": str(source.get("video_type", "")).strip(),
+            "estimated_content_style": str(source.get("estimated_content_style", "")).strip(),
+            "recommended_search_mode": str(source.get("recommended_search_mode", "")).strip(),
+            "duration_sec": source.get("duration_sec"),
         }
 
     def _base_metadata(
@@ -315,6 +321,12 @@ class VectorIndexer:
             local_video_path = ""
             created_at = ""
             ingested_at = ""
+            ingest_method = ""
+            has_audio = None
+            video_type = ""
+            estimated_content_style = ""
+            recommended_search_mode = ""
+            duration_sec = None
 
             for meta in metadatas:
                 if not isinstance(meta, dict):
@@ -356,6 +368,18 @@ class VectorIndexer:
                     created_at = str(meta.get("created_at", "")).strip()
                 if not ingested_at:
                     ingested_at = str(meta.get("ingested_at", "")).strip()
+                if not ingest_method:
+                    ingest_method = str(meta.get("ingest_method", "")).strip()
+                if has_audio is None and meta.get("has_audio") is not None:
+                    has_audio = bool(meta.get("has_audio"))
+                if not video_type:
+                    video_type = str(meta.get("video_type", "")).strip()
+                if not estimated_content_style:
+                    estimated_content_style = str(meta.get("estimated_content_style", "")).strip()
+                if not recommended_search_mode:
+                    recommended_search_mode = str(meta.get("recommended_search_mode", "")).strip()
+                if duration_sec is None and meta.get("duration_sec") is not None:
+                    duration_sec = meta.get("duration_sec")
 
                 timestamp = meta.get("timestamp")
                 if timestamp is not None:
@@ -400,6 +424,12 @@ class VectorIndexer:
                     "local_video_path": local_video_path,
                     "created_at": created_at,
                     "ingested_at": ingested_at,
+                    "ingest_method": ingest_method,
+                    "has_audio": has_audio,
+                    "video_type": video_type,
+                    "estimated_content_style": estimated_content_style,
+                    "recommended_search_mode": recommended_search_mode,
+                    "duration_sec": duration_sec,
                 },
                 "time_range": {
                     "min_timestamp": min_timestamp,

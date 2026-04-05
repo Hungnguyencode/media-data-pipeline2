@@ -37,7 +37,7 @@ models:
     normalize_embeddings: true
 
 pipeline:
-  version: "2.1.0"
+  version: "2.2.0"
   segment_window: 3
   segment_overlap: 1
   caption_merge_window_sec: 3.0
@@ -49,6 +49,19 @@ pipeline:
   hybrid_search_alpha: 0.35
   clip_search_beta: 0.65
   hybrid_candidate_multiplier: 3
+
+metadata:
+  default_video_type: "generic"
+  default_estimated_content_style: "generic"
+  auto_infer_content_style: true
+  auto_infer_recommended_search_mode: true
+
+retrieval:
+  topic_bonus_for_talk: 0.08
+  action_bonus_for_action_video: 0.06
+  visual_bonus_for_visual_video: 0.06
+  audio_penalty_for_cinematic_music: 0.08
+  multimodal_bonus_for_talk: 0.04
 
 vector_db:
   text_collection_name: "video_semantic_search_text"

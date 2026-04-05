@@ -49,6 +49,39 @@ class DummyVisionProcessor(VisionProcessor):
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.processed_dir = tmp_path / "processed"
         self.processed_dir.mkdir(parents=True, exist_ok=True)
+        self.action_families = {
+            "break_open": ["break", "breaking", "break open", "breaking open", "crack", "cracking", "split", "splitting", "split open", "open", "opening", "separate", "separating", "shell", "shelling"],
+            "peel_remove_outer": ["peel", "peeling", "remove peel", "removing peel", "remove shell", "removing shell", "strip", "stripping"],
+            "cut_divide": ["cut", "cutting", "slice", "slicing", "chop", "chopping", "dice", "dicing", "halve", "halving"],
+            "mix_agitate": ["mix", "mixing", "stir", "stirring", "whisk", "whisking", "beat", "beating", "blend", "blending"],
+            "pour_transfer": ["pour", "pouring", "add", "adding", "transfer", "transferring", "empty", "emptying"],
+            "hold_pick_place": ["hold", "holding", "pick up", "picking up", "place", "placing", "put", "putting", "grab", "grabbing"],
+            "squeeze_press": ["squeeze", "squeezing", "press", "pressing", "pinch", "pinching"],
+        }
+
+        self.openable_object_cues = {
+            "egg", "eggs", "shell", "package", "packet", "bag", "box", "carton",
+            "jar", "bottle", "can", "capsule", "pod", "fruit", "orange", "coconut",
+            "nut", "garlic", "onion", "avocado", "oyster", "clam",
+        }
+
+        self.container_cues = {
+            "bowl", "cup", "glass", "plate", "pan", "pot", "tray", "container", "jar", "spoon",
+        }
+
+        self.pourable_object_cues = {
+            "milk", "water", "oil", "juice", "sauce", "syrup", "cream", "liquid",
+        }
+
+        self.person_cues = {
+            "person", "people", "man", "men", "woman", "women", "girl", "girls",
+            "boy", "boys", "someone", "face", "hands", "hand",
+        }
+
+        self.human_scene_cues = {
+            "camera", "smile", "smiling", "wave", "waving", "bed", "lying", "laying",
+            "close", "up", "portrait", "selfie",
+        }
 
     def _load_models(self, device=None):
         return None

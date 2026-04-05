@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 
 from yt_dlp import YoutubeDL
 
+from src.ingest.base_ingestor import BaseIngestor
 from src.utils import get_config, get_data_path, sanitize_filename_component
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ class _YTDLPLogger:
             logger.error("yt-dlp: %s", msg)
 
 
-class YouTubeIngestor:
+class YouTubeIngestor(BaseIngestor):
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or get_config()
         self.raw_dir = Path(get_data_path(self.config["paths"].get("raw_dir", "data/raw")))
@@ -48,13 +49,10 @@ class YouTubeIngestor:
         ffprobe_path = self._get_ffprobe_path()
         cmd = [
             ffprobe_path,
-            "-v",
-            "error",
-            "-select_streams",
-            "a",
+            "-v", "error",
+            "-select_streams", "a",
             "-show_streams",
-            "-of",
-            "json",
+            "-of", "json",
             str(file_path),
         ]
 
@@ -73,22 +71,18 @@ class YouTubeIngestor:
 
     def _extract_video_id(self, video_url: str) -> str:
         parsed = urlparse((video_url or "").strip())
-
         host = (parsed.netloc or "").lower()
         path = parsed.path or ""
         query = parse_qs(parsed.query or "")
 
         if "youtu.be" in host:
-            video_id = path.strip("/").split("/")[0]
-            return video_id.strip()
+            return path.strip("/").split("/")[0].strip()
 
         if "youtube.com" in host or "www.youtube.com" in host or "m.youtube.com" in host:
             if "/shorts/" in path:
                 raise ValueError("YouTube Shorts URLs are not supported in this version")
-
             if path == "/watch":
-                video_id = (query.get("v") or [""])[0].strip()
-                return video_id
+                return (query.get("v") or [""])[0].strip()
 
         return ""
 
@@ -137,7 +131,6 @@ class YouTubeIngestor:
 
         if not info:
             raise RuntimeError("Could not extract YouTube metadata")
-
         if info.get("_type") == "playlist":
             raise ValueError("Playlist URLs are not supported in this version")
 
@@ -182,9 +175,7 @@ class YouTubeIngestor:
         logger.info("YouTube ingest: starting download for %s", canonical_url)
 
         format_candidates = [
-            # Ưu tiên progressive có audio sẵn
             "best[ext=mp4][acodec!=none]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
-            # fallback mềm hơn
             "bestvideo[ext=mp4]+bestaudio/best",
             "best",
         ]
@@ -196,8 +187,7 @@ class YouTubeIngestor:
                 logger.info("YouTube ingest: trying format strategy %d", idx)
                 downloaded_path = self._download_once(canonical_url, output_stem, fmt)
 
-                has_audio = self._has_audio_stream(downloaded_path)
-                if has_audio:
+                if self._has_audio_stream(downloaded_path):
                     logger.info("YouTube ingest: download finished with audio -> %s", downloaded_path)
                     return downloaded_path
 
@@ -212,7 +202,6 @@ class YouTubeIngestor:
 
         if last_error:
             raise RuntimeError(f"Failed to download YouTube video with audio: {last_error}")
-
         raise RuntimeError("Failed to download YouTube video with audio")
 
     def ingest(self, video_url: str) -> Dict[str, Any]:
@@ -232,6 +221,7 @@ class YouTubeIngestor:
 
         uploader = str(info.get("uploader") or "").strip()
         channel = str(info.get("channel") or "").strip()
+        duration_sec = info.get("duration")
 
         normalized_tags = [str(tag).strip() for tag in tags if str(tag).strip()]
         seen = {t.lower() for t in normalized_tags}
@@ -253,4 +243,7 @@ class YouTubeIngestor:
             "thumbnail_url": thumbnail_url,
             "video_tags": normalized_tags[:15],
             "youtube_video_id": video_id,
+            "ingest_method": "youtube_url",
+            "duration_sec": duration_sec,
+            "has_audio": True,
         }

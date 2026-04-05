@@ -1,33 +1,34 @@
-# Media Semantic Search for Video Data Warehouse
+# Media Semantic Search cho Kho Dữ Liệu Video
 
 ## 1. Giới thiệu
 
-Đây là đồ án theo định hướng **Kỹ thuật dữ liệu (Data Engineering)** với mục tiêu xây dựng một **data pipeline đa phương thức cho dữ liệu video**, phục vụ:
+Đây là đồ án theo định hướng **Kỹ thuật dữ liệu (Data Engineering)** với mục tiêu xây dựng một **pipeline đa phương thức cho dữ liệu video**, phục vụ các tác vụ:
 
-- trích xuất giọng nói từ video,
+- ingest video từ file local hoặc **YouTube URL**,
+- trích xuất audio và frame,
+- chuyển giọng nói thành văn bản,
 - mô tả nội dung hình ảnh theo frame,
-- lập chỉ mục vector,
-- tìm kiếm ngữ nghĩa trên kho dữ liệu video,
-- quản lý inventory video đã được index,
-- và hỗ trợ ingest video từ **YouTube URL**.
+- lập chỉ mục vector cho dữ liệu video,
+- tìm kiếm ngữ nghĩa trên kho video,
+- quản lý inventory và metadata của video đã index.
 
-Phiên bản hiện tại của hệ thống hoạt động theo hướng **multimodal semantic search**, kết hợp:
+Phiên bản hiện tại là **v2.2.0**, tập trung vào tính **ổn định khi demo**, **metadata rõ ràng**, và **retrieval đa phương thức** đủ mạnh cho bài báo cáo/đồ án.
 
-- **Whisper** để speech-to-text,
-- **BLIP** để sinh caption từ frame ảnh,
-- **OpenCLIP** để biểu diễn hình ảnh và tăng chất lượng đối sánh text-image,
-- **SentenceTransformers** để embedding cho text documents,
-- **ChromaDB** để lưu trữ vector và truy xuất ngữ nghĩa,
-- **FastAPI** để cung cấp API,
-- **Streamlit** để làm giao diện demo.
+Hệ thống kết hợp các thành phần chính:
 
-Ngoài phần semantic search, hệ thống còn có lớp **video catalog metadata** để gắn kết video local hoặc video ingest từ YouTube với metadata nguồn như nền tảng, link gốc, tiêu đề, mô tả, thumbnail và tags.
+- **Whisper** cho speech-to-text,
+- **BLIP** cho image captioning,
+- **OpenCLIP** cho text-image matching,
+- **SentenceTransformers** cho text embedding,
+- **ChromaDB** cho lưu trữ vector,
+- **FastAPI** cho backend API,
+- **Streamlit** cho giao diện demo.
 
 ---
 
-## 2. Mục tiêu đề tài
+## 2. Mục tiêu của hệ thống
 
-Hệ thống hướng tới một pipeline hoàn chỉnh cho video semantic search, gồm các bước:
+Hệ thống hướng tới một pipeline video semantic search hoàn chỉnh theo các bước:
 
 1. ingest video,
 2. extract audio và frame,
@@ -36,24 +37,82 @@ Hệ thống hướng tới một pipeline hoàn chỉnh cho video semantic sear
 5. phục vụ tìm kiếm qua API và UI,
 6. quản lý inventory video trong kho dữ liệu.
 
+Bản hiện tại ưu tiên:
+
+- **YouTube-only ingest** cho nguồn online,
+- không mở rộng sang multi-platform,
+- không triển khai job queue / orchestration phức tạp,
+- đủ rõ để demo và phân tích trong luận văn.
+
 ---
 
-## 3. Chức năng chính
+## 3. Những nâng cấp chính của phiên bản 2.2.0
 
-### 3.1. Xử lý video
+So với bản pipeline cơ bản, phiên bản hiện tại đã được nâng cấp theo các hướng sau:
+
+### 3.1. Ingest và quản lý nguồn video
+- hỗ trợ ingest từ **YouTube URL**,
+- canonicalize URL YouTube về dạng chuẩn,
+- tự lấy metadata nguồn bằng `yt-dlp`,
+- lưu/cập nhật catalog trong `data/video_catalog.json`,
+- hỗ trợ re-index dựa trên catalog,
+- hỗ trợ cleanup artifact theo từng video.
+
+### 3.2. Pipeline ổn định hơn
+- phát hiện video **không có audio**,
+- nếu không có audio, hệ thống vẫn chạy theo nhánh **visual-only**,
+- `WhisperProcessor` có **fallback từ CUDA sang CPU**,
+- sampling frame theo thời gian với cấu hình cân bằng cho demo.
+
+### 3.3. Metadata giàu hơn
+Metadata không chỉ dừng ở `video_name`, mà còn có thêm:
+
+- `source_platform`
+- `source_url`
+- `video_title`
+- `video_description`
+- `thumbnail_url`
+- `video_tags`
+- `local_video_path`
+- `ingest_method`
+- `has_audio`
+- `video_type`
+- `estimated_content_style`
+- `recommended_search_mode`
+- `duration_sec`
+
+### 3.4. Retrieval tốt hơn
+- semantic text retrieval,
+- CLIP text-image retrieval,
+- hybrid fusion,
+- soft rerank theo query/action/style,
+- event grouping,
+- nearby speech context,
+- hỗ trợ query `multimodal` nhưng vẫn tận dụng được visual signal từ caption/CLIP.
+
+### 3.5. Đánh giá và test tốt hơn
+- có `benchmark_cases.json` cho evaluation,
+- có `run_eval.py` để chấm tự động,
+- có test cho API, extract, retrieval, transform, vector indexing và main pipeline.
+
+---
+
+## 4. Chức năng chính
+
+### 4.1. Xử lý video
 - nhận video từ đường dẫn local,
 - upload video qua UI/API,
 - ingest video từ **YouTube URL**,
 - tách audio từ video bằng FFmpeg,
 - trích xuất frame theo thời gian.
 
-### 3.2. Trích xuất thông tin
+### 4.2. Trích xuất thông tin
 - chuyển giọng nói thành văn bản bằng Whisper,
 - sinh caption mô tả nội dung frame bằng BLIP,
-- encode frame bằng OpenCLIP image embedding,
+- sinh image embedding bằng OpenCLIP,
 - tạo multimodal documents bằng cách kết hợp speech và visual context gần nhau theo thời gian.
 
-### 3.3. Lập chỉ mục vector
+### 4.3. Lập chỉ mục vector
 Hệ thống index 4 loại document:
 
 - `transcription`
@@ -61,82 +120,58 @@ Hệ thống index 4 loại document:
 - `caption`
 - `multimodal`
 
-Text documents được đưa vào **text collection**, còn CLIP image embedding của caption được đưa vào **clip collection**.
+Text documents được lưu trong **text collection**, còn CLIP embedding của frame được lưu trong **clip collection**.
 
-### 3.4. Tìm kiếm ngữ nghĩa
+### 4.4. Tìm kiếm ngữ nghĩa
 Hệ thống hỗ trợ:
 
 - semantic search toàn kho video,
 - lọc theo `content_type`,
 - lọc theo `video_name`,
-- hybrid retrieval giữa:
-  - text embedding search,
-  - CLIP text-image retrieval,
-- soft rerank và event grouping để gom các frame gần nhau thành một kết quả dễ đọc hơn.
+- hybrid retrieval giữa text embedding và CLIP,
+- soft rerank,
+- event grouping để gom các kết quả gần nhau thành một cụm dễ đọc hơn.
 
-### 3.5. Quản lý kho video
+### 4.5. Quản lý kho video
 - liệt kê video đã index,
 - xem inventory từng video,
-- xóa toàn bộ dữ liệu index của một video,
-- hiển thị metadata nguồn video trong search result và inventory.
-
-### 3.6. Auto-catalog metadata
-Khi xử lý một video local mới hoặc ingest từ YouTube, hệ thống có thể **tự động tạo hoặc cập nhật entry trong `data/video_catalog.json`** với metadata như:
-
-- `video_name`
-- `local_video_path`
-- `source_platform`
-- `source_url`
-- `title`
-- `description`
-- `thumbnail_url`
-- `tags`
-- `created_at`
-- `ingested_at`
-
-### 3.7. YouTube ingest (Bản 2)
-Hệ thống hiện hỗ trợ:
-
-- nhập **YouTube URL**,
-- canonicalize về URL chuẩn dạng `watch?v=...`,
-- lấy metadata bằng `yt-dlp`,
-- tải video về `data/raw`,
-- kiểm tra audio stream bằng `ffprobe`,
-- cập nhật catalog tự động,
-- đẩy video vào pipeline xử lý và index.
+- xóa dữ liệu index của một video,
+- cleanup artifact,
+- re-index video dựa trên catalog metadata.
 
 ---
 
-## 4. Kiến trúc hệ thống
+## 5. Kiến trúc hệ thống
 
-### 4.1. Extract layer
+### 5.1. Extract layer
 - `AudioExtractor`
 - `FrameExtractor`
 
-### 4.2. Transform layer
+### 5.2. Transform layer
 - `WhisperProcessor`
 - `VisionProcessor`
 
-### 4.3. Index layer
+### 5.3. Index layer
 - `VectorIndexer`
 
-### 4.4. Retrieval layer
+### 5.4. Retrieval layer
 - `SearchEngine`
 
-### 4.5. Ingest layer
+### 5.5. Ingest layer
 - `YouTubeIngestor`
+- `LocalFileIngestor`
 
-### 4.6. Serving layer
+### 5.6. Serving layer
 - `FastAPI`
 - `Streamlit`
 
-### 4.7. Catalog / metadata layer
+### 5.7. Catalog / metadata layer
 - `data/video_catalog.json`
 - các utility trong `src/utils.py` để load / save / upsert catalog entry
 
 ---
 
-## 5. Công nghệ sử dụng
+## 6. Công nghệ sử dụng
 
 - Python
 - FastAPI
@@ -152,7 +187,7 @@ Hệ thống hiện hỗ trợ:
 
 ---
 
-## 6. Cấu trúc thư mục
+## 7. Cấu trúc thư mục
 
 ```text
 project/
@@ -171,6 +206,9 @@ project/
 │   ├── processed/
 │   ├── vector_db/
 │   └── video_catalog.json
+├── evaluation/
+│   ├── benchmark_cases.json
+│   └── run_eval.py
 ├── logs/
 ├── src/
 │   ├── extract/
@@ -189,12 +227,11 @@ project/
 
 ---
 
-## 7. Cấu hình hiện tại
+## 8. Cấu hình hiện tại
 
 File cấu hình chính: `configs/config.yaml`
 
-### 7.1. Sampling frame
-Cấu hình hiện tại:
+### 8.1. Sampling frame
 
 ```yaml
 video:
@@ -208,18 +245,18 @@ video:
 
 - `1.0 fps`: lấy khoảng 1 frame mỗi giây,
 - `240 frames`: giới hạn tối đa 240 frame mỗi video,
-- đây là cấu hình **cân bằng** giữa:
-  - action ngắn,
-  - video dài vừa,
-  - và tải máy khi demo.
+- đây là cấu hình cân bằng giữa:
+  - temporal coverage,
+  - độ nhẹ khi demo,
+  - và chất lượng truy xuất cho video dài vừa phải.
 
-### 7.2. Mô hình
+### 8.2. Mô hình
 - Whisper: `base`
 - BLIP: `Salesforce/blip-image-captioning-base`
 - CLIP: `ViT-B-32` pretrained `openai`
 - Text embedding: `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
 
-### 7.3. Retrieval
+### 8.3. Retrieval
 Một số tham số chính:
 
 - `hybrid_search_alpha: 0.35`
@@ -230,7 +267,7 @@ Một số tham số chính:
 
 ---
 
-## 8. Luồng xử lý dữ liệu
+## 9. Luồng xử lý dữ liệu
 
 ### Bước 1: Nhận video
 Video đi vào hệ thống qua:
@@ -238,12 +275,18 @@ Video đi vào hệ thống qua:
 - process theo đường dẫn file local,
 - hoặc ingest từ **YouTube URL**.
 
-### Bước 2: Auto-catalog
-Ngay đầu pipeline, hệ thống tự đảm bảo video có catalog entry trong `data/video_catalog.json`.
+### Bước 2: Chuẩn hóa metadata nguồn
+Hệ thống chuẩn hóa `source_metadata` cho pipeline, gồm:
+- thông tin nền tảng nguồn,
+- đường dẫn local,
+- title / description / tags,
+- kiểu video,
+- style nội dung,
+- mode search gợi ý.
 
 ### Bước 3: Extract
-- tách audio,
 - kiểm tra audio stream,
+- tách audio nếu có,
 - trích xuất frame theo thời gian.
 
 ### Bước 4: Transform
@@ -260,29 +303,29 @@ Ngay đầu pipeline, hệ thống tự đảm bảo video có catalog entry tro
 - người dùng tìm kiếm semantic search,
 - xem inventory video,
 - xem metadata nguồn,
-- hoặc xóa dữ liệu index theo từng video.
+- cleanup / re-index khi cần.
 
 ---
 
-## 9. Các loại dữ liệu được index
+## 10. Các loại dữ liệu được index
 
-### 9.1. `transcription`
+### 10.1. `transcription`
 Toàn bộ transcript của video.
 
-### 9.2. `segment_chunk`
+### 10.2. `segment_chunk`
 Các đoạn transcript được ghép theo cửa sổ segment.
 
-### 9.3. `caption`
+### 10.3. `caption`
 Caption theo từng frame.
 
-### 9.4. `multimodal`
+### 10.4. `multimodal`
 Document kết hợp:
 - phần speech,
 - phần visual gần theo thời gian.
 
 ---
 
-## 10. Metadata chính
+## 11. Metadata chính
 
 Một record trong vector database có thể có các metadata như:
 
@@ -312,10 +355,16 @@ Ngoài ra còn có metadata nguồn video:
 - `local_video_path`
 - `created_at`
 - `ingested_at`
+- `ingest_method`
+- `has_audio`
+- `video_type`
+- `estimated_content_style`
+- `recommended_search_mode`
+- `duration_sec`
 
 ---
 
-## 11. API chính
+## 12. API chính
 
 ### `GET /`
 Kiểm tra API đang chạy và liệt kê endpoint chính.
@@ -337,6 +386,12 @@ Lấy inventory chi tiết của một video.
 
 ### `DELETE /videos/{video_name}`
 Xóa dữ liệu index của một video.
+
+### `POST /videos/{video_name}/cleanup`
+Xóa artifact của video theo tùy chọn.
+
+### `POST /videos/{video_name}/reindex`
+Re-index video dựa trên catalog entry.
 
 ### `POST /search`
 Semantic search.
@@ -372,36 +427,35 @@ Ví dụ:
 
 ---
 
-## 12. Giao diện người dùng
+## 13. Giao diện người dùng
 
-UI Streamlit gồm 5 tab:
+UI Streamlit gồm các tab chính:
 
-### 12.1. Search
+### 13.1. Search
 - nhập query,
 - chọn top_k,
 - lọc theo loại nội dung,
 - lọc theo video,
-- xem preview video,
 - xem timestamp, event range, caption, nearby speech context,
 - xem metadata nguồn video.
 
-### 12.2. Upload & Process
+### 13.2. Upload & Process
 - upload file video,
 - xử lý video,
 - chọn `reset_index`,
-- xem kết quả pipeline và preview video.
+- xem kết quả pipeline.
 
-### 12.3. Process by Path
+### 13.3. Process by Path
 - xử lý video local theo đường dẫn tuyệt đối hoặc tương đối.
 
-### 12.4. Process by YouTube URL
+### 13.4. Process by YouTube URL
 - nhập YouTube URL,
 - tải video về `data/raw`,
 - cập nhật source metadata,
 - chạy pipeline,
 - xem ingest result và pipeline result.
 
-### 12.5. Video Inventory
+### 13.5. Video Inventory
 - xem danh sách video đã index,
 - xem inventory chi tiết,
 - xem metadata nguồn,
@@ -409,36 +463,36 @@ UI Streamlit gồm 5 tab:
 
 ---
 
-## 13. Cài đặt môi trường
+## 14. Cài đặt môi trường
 
-### 13.1. Tạo virtual environment
+### 14.1. Tạo virtual environment
 ```bash
 python -m venv venv
 ```
 
-### 13.2. Kích hoạt virtual environment
+### 14.2. Kích hoạt virtual environment
 Windows:
 ```bash
 venv\Scripts\activate
 ```
 
-### 13.3. Cài dependencies
+### 14.3. Cài dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 13.4. Cài PyTorch theo môi trường máy
-Ví dụ CUDA:
+### 14.4. Cài PyTorch theo môi trường máy
+Ví dụ với CUDA:
 ```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
-### 13.5. Cài FFmpeg / FFprobe
+### 14.5. Cài FFmpeg / FFprobe
 Đảm bảo cả `ffmpeg` và `ffprobe` chạy được từ terminal.
 
 ---
 
-## 14. Cách chạy hệ thống
+## 15. Cách chạy hệ thống
 
 ### Chạy API
 ```bash
@@ -455,9 +509,33 @@ streamlit run ui/app.py
 pytest -v
 ```
 
+### Chạy evaluation benchmark
+```bash
+python evaluation/run_eval.py
+```
+
 ---
 
-## 15. Luồng demo gợi ý
+## 16. Evaluation benchmark
+
+Hệ thống hiện có:
+
+- `evaluation/benchmark_cases.json`
+- `evaluation/run_eval.py`
+
+Trong đó:
+
+- `benchmark_cases.json` là **bộ test case khai báo thủ công**, không tự sinh tự động,
+- `run_eval.py` đọc file này, gọi `pipeline.search(...)`, rồi chấm hit/matched rank.
+
+Điều này phù hợp với scope đồ án vì:
+- bộ query nhỏ,
+- có chủ đích,
+- dễ giải thích ground truth trong báo cáo.
+
+---
+
+## 17. Luồng demo gợi ý
 
 1. chạy FastAPI,
 2. chạy Streamlit,
@@ -465,19 +543,20 @@ pytest -v
 4. ingest một video bằng **Process by YouTube URL** hoặc process video local,
 5. chờ pipeline hoàn tất,
 6. vào tab **Search** để thử query,
-7. kiểm tra **Video Inventory** để xem thống kê và metadata.
+7. kiểm tra **Video Inventory** để xem thống kê và metadata,
+8. nếu cần, chạy `evaluation/run_eval.py` để trình bày phần đánh giá.
 
 ---
 
-## 16. Một số lưu ý thực tế
+## 18. Một số lưu ý thực tế
 
-### 16.1. Trade-off của frame sampling
+### 18.1. Trade-off của frame sampling
 Cấu hình `1.0 fps, 240 frames` là một mức cân bằng, nhưng không thể tối ưu đồng thời cho mọi loại video:
 
 - video action rất ngắn có thể thích sampling dày hơn,
 - video dài nhiều cảnh có thể thích coverage dài hơn.
 
-### 16.2. Caption không phải ground truth
+### 18.2. Caption không phải ground truth
 Caption từ BLIP là mô tả tự động tham khảo. Khi demo, nên xem:
 
 - matched frame,
@@ -487,28 +566,28 @@ Caption từ BLIP là mô tả tự động tham khảo. Khi demo, nên xem:
 
 là các tín hiệu quan trọng hơn chỉ riêng câu caption.
 
-### 16.3. Video nhạc / cinematic
-Với video chỉ có nhạc hoặc cinematic montage, Whisper vẫn có thể sinh transcript từ lyrics hoặc audio nền. Trong các case này, nên ưu tiên:
+### 18.3. Video nhạc / cinematic
+Với video chỉ có nhạc hoặc cinematic montage, transcript có thể kém đáng tin hơn. Trong các case này, nên ưu tiên:
 
 - `caption`
 - `multimodal`
 
-hơn là tin hoàn toàn vào `transcription`.
+hơn là chỉ dựa vào `transcription`.
 
-### 16.4. YouTube ingest chưa phải production-grade
-Flow YouTube hiện đã usable cho demo, nhưng vẫn phụ thuộc:
+### 18.4. YouTube ingest chưa phải production-grade
+Flow YouTube hiện usable cho demo, nhưng vẫn phụ thuộc:
 
 - yt-dlp,
 - format availability,
 - ffmpeg / ffprobe,
 - thay đổi phía YouTube.
 
-### 16.5. Re-index sau khi đổi config
+### 18.5. Re-index sau khi đổi config hoặc metadata
 Nếu thay đổi config hoặc cập nhật metadata, nên process lại video với `reset_index=True`.
 
 ---
 
-## 17. Điểm mạnh của hệ thống
+## 19. Điểm mạnh của hệ thống
 
 - Có pipeline rõ từ ingest đến search.
 - Kết hợp cả audio và image.
@@ -518,33 +597,33 @@ Nếu thay đổi config hoặc cập nhật metadata, nên process lại video 
 - Có YouTube ingest cho Bản 2.
 - Có API và UI để demo.
 - Có test cho các thành phần chính.
-- Có auto-catalog cho video local và video ingest từ URL.
+- Có benchmark evaluation cơ bản.
 
 ---
 
-## 18. Giới hạn hiện tại
+## 20. Giới hạn hiện tại
 
 - Chưa hướng tới production-scale.
 - Caption vẫn có thể khái quát hoặc chưa đủ fine-grained.
 - Một số object nhỏ hoặc khó phân biệt vẫn có thể bị caption nhầm.
 - Với video cinematic / music video, transcript có thể kém đáng tin hơn talk/TED.
 - Catalog hiện vẫn ở mức JSON prototype, chưa phải metadata store quy mô lớn.
-- Hiện tại mới hỗ trợ ingest **YouTube-only**, chưa mở rộng đa nền tảng.
+- Hiện tại mới hỗ trợ ingest **YouTube-only**.
 
 ---
 
-## 19. Hướng phát triển
+## 21. Hướng phát triển
 
 - batch ingest YouTube từ danh sách URL,
 - hỗ trợ thêm nền tảng khác ngoài YouTube,
-- thêm đánh giá retrieval theo metric,
+- mở rộng evaluation với nhiều query hơn,
 - mở rộng quản lý catalog,
 - bổ sung dashboard monitoring,
-- hỗ trợ pipeline orchestration trong tương lai.
+- hỗ trợ orchestration trong tương lai nếu cần.
 
 ---
 
-## 20. Kết luận
+## 22. Kết luận
 
 Hệ thống hiện tại đã xây dựng được một **multimodal semantic search pipeline cho video** với các thành phần chính:
 
@@ -557,4 +636,4 @@ Hệ thống hiện tại đã xây dựng được một **multimodal semantic 
 - metadata catalog,
 - và ingest video từ YouTube URL.
 
-Đây là một prototype đủ rõ về mặt kỹ thuật để phục vụ demo đồ án theo định hướng **Kỹ thuật dữ liệu**, đồng thời đủ trực quan để trình diễn semantic search trên video qua API và UI.
+Đây là một prototype đủ rõ về mặt kỹ thuật để phục vụ demo đồ án theo định hướng **Kỹ thuật dữ liệu**, đồng thời đủ trực quan để trình bày semantic search trên video qua API và UI.

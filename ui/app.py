@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import requests
 import streamlit as st
@@ -113,12 +113,14 @@ def set_query_sample(sample_text: str):
 
 def show_video_preview(video_name: Optional[str], title: str = "Video preview"):
     video_path = get_video_file_path(video_name)
+
     if not video_path:
         st.info("Chưa tìm thấy file video để preview.")
         return
 
     st.markdown(f"### {title}")
     st.caption(f"File: {video_path.name}")
+
     try:
         with open(video_path, "rb") as f:
             st.video(f.read())
@@ -177,6 +179,178 @@ def show_source_info_block(meta: dict):
         st.markdown(f"[Mở link nguồn]({source_url})")
 
 
+def detect_video_style(source_info: Dict[str, Any]) -> str:
+    text = " ".join(
+        [
+            str(source_info.get("video_title", "") or ""),
+            str(source_info.get("video_description", "") or ""),
+            " ".join(parse_video_tags(source_info.get("video_tags"))),
+        ]
+    ).lower()
+
+    if any(token in text for token in ["ted", "talk", "speech", "motivation", "lecture", "presentation"]):
+        return "talk"
+    if any(token in text for token in ["cook", "egg", "recipe", "kitchen", "food"]):
+        return "action"
+    if any(token in text for token in ["wildlife", "nature", "animal", "forest", "ocean"]):
+        return "visual"
+    if any(token in text for token in ["music", "official video", "cinematic", "vlog", "film", "short film"]):
+        return "cinematic_music"
+    return "generic"
+
+
+def get_suggested_queries(source_info: Dict[str, Any]) -> list[str]:
+    style = detect_video_style(source_info)
+    if style == "talk":
+        return ["self motivation", "winning strategy", "motivational speech"]
+    if style == "action":
+        return ["crack egg", "separate egg", "egg yolk"]
+    if style == "visual":
+        return ["bird flying", "wildlife diversity", "forest animals"]
+    if style == "cinematic_music":
+        return ["summer sky", "car on road", "beach scene"]
+    return ["main topic", "important scene", "key moment"]
+
+
+def get_recommended_search_mode(source_info: Dict[str, Any]) -> str:
+    style = detect_video_style(source_info)
+    if style == "talk":
+        return "Talk mode"
+    if style == "action":
+        return "Action mode"
+    if style == "visual":
+        return "Visual mode"
+    if style == "cinematic_music":
+        return "Visual mode"
+    return "Manual"
+
+
+def derive_search_preset_defaults(preset_name: str) -> tuple[Optional[str], str]:
+    mapping = {
+        "Manual": (None, "Tất cả"),
+        "Talk mode": ("segment_chunk", "Đoạn transcript"),
+        "Action mode": ("caption", "Caption ảnh"),
+        "Visual mode": ("caption", "Caption ảnh"),
+        "Audio mode": ("transcription", "Toàn bộ transcript"),
+    }
+    return mapping.get(preset_name, (None, "Tất cả"))
+
+
+def dominant_modality(source_modality_counts: Dict[str, int]) -> str:
+    if not source_modality_counts:
+        return "Unknown"
+    return max(source_modality_counts.items(), key=lambda item: item[1])[0]
+
+
+def searchable_types_label(content_type_counts: Dict[str, int]) -> str:
+    enabled = [k for k, v in content_type_counts.items() if int(v or 0) > 0]
+    return ", ".join(enabled) if enabled else "None"
+
+
+def format_seconds_to_hhmmss(seconds: Optional[float]) -> str:
+    if seconds is None:
+        return "N/A"
+    try:
+        total = max(0, int(float(seconds)))
+    except Exception:
+        return "N/A"
+    hh = total // 3600
+    mm = (total % 3600) // 60
+    ss = total % 60
+    return f"{hh:02d}:{mm:02d}:{ss:02d}"
+
+
+def limitation_hints_for_result(result: Dict[str, Any]) -> list[str]:
+    hints: list[str] = []
+    meta = result.get("metadata", {}) or {}
+    source_info = {
+        "video_title": meta.get("video_title", ""),
+        "video_description": meta.get("video_description", ""),
+        "video_tags": meta.get("video_tags", ""),
+    }
+
+    content_type = str(meta.get("content_type", "") or "")
+    score_type = str(result.get("score_type", "") or "")
+    similarity_score = result.get("similarity_score")
+    style = detect_video_style(source_info)
+
+    if content_type == "caption":
+        hints.append("Caption is auto-generated and may be approximate.")
+
+    if similarity_score is not None:
+        try:
+            if float(similarity_score) < 0.35:
+                hints.append("Low-confidence result.")
+        except Exception:
+            pass
+
+    if style == "cinematic_music":
+        hints.append("Transcript may be less reliable for this video type.")
+
+    if style == "talk":
+        hints.append("Topic/speech queries are usually more reliable for this video type.")
+
+    if "legacy" in score_type.lower():
+        hints.append("Legacy scoring path was used for this result.")
+
+    return hints
+
+
+def limitation_hints_for_video(source_info: Dict[str, Any]) -> list[str]:
+    style = detect_video_style(source_info)
+    if style == "cinematic_music":
+        return [
+            "Video này thiên về cinematic/music nên transcript có thể kém đáng tin hơn caption/image.",
+            "Nên ưu tiên caption hoặc multimodal khi tìm kiếm.",
+        ]
+    if style == "talk":
+        return [
+            "Video này phù hợp với semantic search theo topic, idea và speech context.",
+            "Các truy vấn dựa trên speech/topic thường đáng tin hơn truy vấn object thuần hình ảnh.",
+        ]
+    if style == "action":
+        return [
+            "Video này phù hợp với caption-based queries về hành động, vật thể và thao tác.",
+        ]
+    return []
+
+
+def call_reindex(video_name: str):
+    response = requests.post(
+        f"{API_BASE}/videos/{video_name}/reindex",
+        json={"reset_index": True},
+        timeout=600,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def call_cleanup(
+    video_name: str,
+    *,
+    delete_raw: bool = False,
+    delete_audio: bool = False,
+    delete_frames: bool = False,
+    delete_interim_json: bool = False,
+    delete_processed: bool = False,
+    keep_catalog: bool = True,
+):
+    response = requests.post(
+        f"{API_BASE}/videos/{video_name}/cleanup",
+        json={
+            "delete_raw": delete_raw,
+            "delete_audio": delete_audio,
+            "delete_frames": delete_frames,
+            "delete_interim_json": delete_interim_json,
+            "delete_processed": delete_processed,
+            "keep_catalog": keep_catalog,
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
 API_BASE = load_api_base()
 
 SAMPLE_QUERIES = [
@@ -197,6 +371,22 @@ SAMPLE_QUERIES = [
     "lòng trắng trứng",
 ]
 
+CONTENT_TYPE_OPTIONS = [
+    "Tất cả",
+    "Toàn bộ transcript",
+    "Đoạn transcript",
+    "Caption ảnh",
+    "Tài liệu đa phương thức",
+]
+
+CONTENT_TYPE_MAP = {
+    "Tất cả": None,
+    "Toàn bộ transcript": "transcription",
+    "Đoạn transcript": "segment_chunk",
+    "Caption ảnh": "caption",
+    "Tài liệu đa phương thức": "multimodal",
+}
+
 if "last_processed_result" not in st.session_state:
     st.session_state["last_processed_result"] = None
 
@@ -206,6 +396,9 @@ if "last_processed_video_name" not in st.session_state:
 if "query_input" not in st.session_state:
     st.session_state["query_input"] = ""
 
+if "search_preset" not in st.session_state:
+    st.session_state["search_preset"] = "Manual"
+
 st.set_page_config(page_title="Media Semantic Search", layout="wide")
 st.title("Media Semantic Search")
 
@@ -213,7 +406,7 @@ with st.sidebar:
     st.markdown("### Backend")
     st.code(API_BASE)
     st.caption(
-        "Lưu ý: Score hiển thị là similarity proxy = 1 - distance, không phải xác suất. "
+        "Score hiển thị là similarity proxy = 1 - distance, không phải xác suất. "
         "Caption là mô tả tự động tham khảo, không phải ground truth."
     )
 
@@ -236,37 +429,40 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(
 
 with tab1:
     st.subheader("Semantic Search")
-
     st.info(
         "Gợi ý sử dụng: truy vấn chủ đề/ý nghĩa nên ưu tiên 'Đoạn transcript' hoặc 'Tài liệu đa phương thức'. "
         "Truy vấn thiên về khung cảnh/vật thể/hành động nên ưu tiên 'Caption ảnh' hoặc 'Tài liệu đa phương thức'."
     )
 
+    preset_col, hint_col = st.columns([1, 2])
+    with preset_col:
+        preset_name = st.selectbox(
+            "Search preset",
+            options=["Manual", "Talk mode", "Action mode", "Visual mode", "Audio mode"],
+            index=["Manual", "Talk mode", "Action mode", "Visual mode", "Audio mode"].index(
+                st.session_state.get("search_preset", "Manual")
+            ),
+        )
+        st.session_state["search_preset"] = preset_name
+
+    with hint_col:
+        if preset_name != "Manual":
+            st.caption(f"Preset đang dùng: **{preset_name}**")
+
     query = st.text_input("Nhập câu truy vấn", key="query_input")
     top_k = st.slider("Top K", min_value=1, max_value=20, value=5)
 
+    _, preset_label = derive_search_preset_defaults(preset_name)
+
     col_a, col_b = st.columns(2)
     with col_a:
+        default_index = CONTENT_TYPE_OPTIONS.index(preset_label)
         content_type_label = st.selectbox(
             "Lọc theo loại nội dung",
-            options=[
-                "Tất cả",
-                "Toàn bộ transcript",
-                "Đoạn transcript",
-                "Caption ảnh",
-                "Tài liệu đa phương thức",
-            ],
-            index=0,
+            options=CONTENT_TYPE_OPTIONS,
+            index=default_index,
         )
-
-        content_type_map = {
-            "Tất cả": None,
-            "Toàn bộ transcript": "transcription",
-            "Đoạn transcript": "segment_chunk",
-            "Caption ảnh": "caption",
-            "Tài liệu đa phương thức": "multimodal",
-        }
-        content_type = content_type_map[content_type_label]
+        content_type = CONTENT_TYPE_MAP[content_type_label]
 
     with col_b:
         selected_video = st.selectbox(
@@ -286,18 +482,11 @@ with tab1:
         chosen_video_for_preview = selected_video
 
     last_video_name = st.session_state.get("last_processed_video_name")
-
     if last_video_name:
-        show_video_preview(
-            last_video_name,
-            title="Video vừa xử lý gần nhất",
-        )
+        show_video_preview(last_video_name, title="Video vừa xử lý gần nhất")
 
     if chosen_video_for_preview and chosen_video_for_preview != last_video_name:
-        show_video_preview(
-            chosen_video_for_preview,
-            title="Video đang được chọn để tìm kiếm",
-        )
+        show_video_preview(chosen_video_for_preview, title="Video đang được chọn để tìm kiếm")
 
     if st.button("Search"):
         if not query.strip():
@@ -330,14 +519,12 @@ with tab1:
                     st.info("Không tìm thấy kết quả.")
                 else:
                     st.success(f"Tìm thấy {len(results)} kết quả.")
-
                     for i, result in enumerate(results, start=1):
                         meta = result.get("metadata", {}) or {}
                         st.markdown(f"### Đoạn video phù hợp {i}")
 
                         display_text = result.get("display_text") or result.get("document", "") or ""
                         auto_caption = result.get("display_caption") or result.get("document", "") or ""
-                        raw_doc_text = result.get("document", "") or ""
                         nearby_speech = result.get("nearby_speech_context") or ""
 
                         st.markdown("**Matched frame description**")
@@ -345,11 +532,15 @@ with tab1:
 
                         if auto_caption:
                             st.caption(f"Auto-caption: {auto_caption}")
-
                         if nearby_speech:
-                            st.caption(
-                                f"Nearby speech context: {shorten_text(nearby_speech, max_chars=220)}"
-                            )
+                            st.caption(f"Nearby speech context: {shorten_text(nearby_speech, max_chars=220)}")
+
+                        hints = limitation_hints_for_result(result)
+                        for hint in hints:
+                            if "Low-confidence" in hint:
+                                st.warning(hint)
+                            else:
+                                st.caption(hint)
 
                         timestamp_str = meta.get("timestamp_str") or meta.get("timestamp")
                         start_time_str = meta.get("start_time_str") or meta.get("start_time")
@@ -359,66 +550,31 @@ with tab1:
                         event_start = event_range.get("start")
                         event_end = event_range.get("end")
 
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.write("Video:", meta.get("video_name"))
-                        with col2:
-                            st.write("Loại:", meta.get("content_type"))
-                        with col3:
-                            score = result.get("similarity_score")
-                            if score is not None:
-                                st.write("Similarity proxy:", f"{score:.4f}")
-                            else:
-                                st.write("Similarity proxy:", "N/A")
-
-                        if result.get("distance") is not None:
-                            st.caption(f"Distance: {result['distance']:.6f}")
-
-                        if result.get("score_type"):
-                            st.caption(f"Score type: {result['score_type']}")
-
-                        if timestamp_str is not None:
-                            st.markdown(f"**Mốc frame tốt nhất:** `{timestamp_str}`")
-
-                        if event_start is not None and event_end is not None:
-                            st.markdown(
-                                f"**Khoảng event gần đúng:** `{event_start:.2f}s -> {event_end:.2f}s`"
-                            )
-
-                        if start_time_str is not None and end_time_str is not None:
-                            st.markdown(f"**Khoảng thời gian tài liệu:** `{start_time_str} -> {end_time_str}`")
-                            st.caption(
-                                "Đối chiếu video: tua video đến đúng khoảng thời gian này để xem nội dung tương ứng."
-                            )
-
-                        if meta.get("frame_name"):
-                            st.write("Frame:", meta.get("frame_name"))
-
-                        if meta.get("source_modality"):
-                            st.write("Modality:", meta.get("source_modality"))
-
-                        if meta.get("model_name"):
-                            st.write("Model:", meta.get("model_name"))
-
-                        if meta.get("document_language"):
-                            st.write("Language:", meta.get("document_language"))
-
-                        if result.get("group_size") is not None:
-                            st.write("Nearby matched frames grouped:", result.get("group_size"))
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            st.write("Video:", meta.get("video_name", ""))
+                            st.write("Loại:", meta.get("content_type", ""))
+                            st.write("Similarity proxy:", result.get("similarity_score"))
+                            st.write("Distance:", result.get("distance"))
+                        with c2:
+                            st.write("Score type:", result.get("score_type"))
+                            st.write("Mốc frame tốt nhất:", timestamp_str)
+                            st.write("Khoảng event gần đúng:", f"{event_start} -> {event_end}")
+                            st.write("Khoảng thời gian tài liệu:", f"{start_time_str} -> {end_time_str}")
+                        with c3:
+                            st.write("Modality:", meta.get("source_modality", ""))
+                            st.write("Model:", meta.get("model_name", ""))
+                            st.write("Language:", meta.get("document_language", ""))
+                            st.write("Nearby matched frames grouped:", result.get("group_size", 1))
 
                         st.markdown("**Nguồn video**")
                         show_source_info_block(meta)
-
-                        with st.expander("Xem toàn bộ nội dung gốc"):
-                            st.write(raw_doc_text)
-
-                        st.divider()
-
+                        st.markdown("---")
             except Exception as e:
-                st.error(f"Lỗi khi search: {e}")
+                st.error(f"Search failed: {e}")
 
 with tab2:
-    st.subheader("Upload video and process")
+    st.subheader("Upload & Process")
 
     if st.session_state.get("last_processed_video_name"):
         show_video_preview(
@@ -427,49 +583,50 @@ with tab2:
         )
 
     uploaded_file = st.file_uploader(
-        "Chọn file video",
+        "Chọn file video để upload",
         type=["mp4", "avi", "mov", "mkv", "webm"],
     )
+
     reset_index_upload = st.checkbox(
         "Xóa dữ liệu cũ của video này trước khi index lại",
         value=True,
         key="upload_reset",
     )
 
-    if st.button("Upload & Process"):
+    if st.button("Upload & Process", disabled=uploaded_file is None):
         if uploaded_file is None:
-            st.warning("Vui lòng chọn file video.")
+            st.warning("Vui lòng chọn video.")
         else:
             try:
                 files = {
-                    "file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type or "video/mp4")
+                    "file": (
+                        uploaded_file.name,
+                        uploaded_file.getvalue(),
+                        uploaded_file.type or "application/octet-stream",
+                    )
                 }
                 response = requests.post(
                     f"{API_BASE}/upload-video",
-                    files=files,
                     params={"reset_index": str(reset_index_upload).lower()},
+                    files=files,
                     timeout=3600,
                 )
                 response.raise_for_status()
                 result = response.json()
 
-                uploaded_path = result.get("uploaded_path")
-                process_result = result.get("result", {})
-                video_name = process_result.get("video_name") or (Path(uploaded_path).name if uploaded_path else None)
+                st.session_state["last_processed_result"] = result.get("result")
+                if result.get("result"):
+                    st.session_state["last_processed_video_name"] = result["result"].get("video_name")
 
-                st.session_state["last_processed_result"] = result
-                st.session_state["last_processed_video_name"] = video_name
-
-                st.success("Upload và xử lý video thành công")
-                if result.get("message"):
-                    st.info(result["message"])
+                st.success(result.get("message", "Upload và xử lý thành công"))
                 st.json(result)
 
-                source_info = process_result.get("video_source_info") or {}
+                source_info = (result.get("result") or {}).get("video_source_info") or {}
                 if source_info:
                     st.markdown("### Nguồn video")
                     show_source_info_block(source_info)
 
+                video_name = (result.get("result") or {}).get("video_name")
                 if video_name:
                     show_video_preview(video_name, title="Video vừa upload và xử lý")
             except Exception as e:
@@ -485,7 +642,7 @@ with tab3:
         )
 
     video_path = st.text_input("Đường dẫn video trên máy chạy backend")
-    reset_index = st.checkbox(
+    reset_index_path = st.checkbox(
         "Xóa dữ liệu cũ của video này trước khi index lại",
         value=True,
         key="path_reset",
@@ -498,7 +655,7 @@ with tab3:
             try:
                 response = requests.post(
                     f"{API_BASE}/process-video",
-                    json={"video_path": video_path.strip(), "reset_index": reset_index},
+                    json={"video_path": video_path.strip(), "reset_index": reset_index_path},
                     timeout=3600,
                 )
                 response.raise_for_status()
@@ -523,7 +680,11 @@ with tab3:
 with tab4:
     st.subheader("Process by YouTube URL")
 
-    st.info("Phiên bản hiện tại chỉ hỗ trợ 1 YouTube URL sạch mỗi lần, không hỗ trợ playlist hoặc Shorts.")
+    if st.session_state.get("last_processed_video_name"):
+        show_video_preview(
+            st.session_state.get("last_processed_video_name"),
+            title="Video gần nhất trong phiên làm việc",
+        )
 
     youtube_url = st.text_input("Nhập YouTube URL")
     reset_index_youtube = st.checkbox(
@@ -539,41 +700,29 @@ with tab4:
             try:
                 response = requests.post(
                     f"{API_BASE}/ingest-youtube",
-                    json={
-                        "video_url": youtube_url.strip(),
-                        "reset_index": reset_index_youtube,
-                    },
+                    json={"video_url": youtube_url.strip(), "reset_index": reset_index_youtube},
                     timeout=7200,
                 )
                 response.raise_for_status()
-                result = response.json()
+                payload = response.json()
 
-                ingest_result = result.get("ingest_result", {})
-                process_result = result.get("result", {})
-                video_name = process_result.get("video_name") or ingest_result.get("video_name")
+                process_result = payload.get("result") or {}
+                ingest_result = payload.get("ingest_result") or {}
 
-                st.session_state["last_processed_result"] = result
-                st.session_state["last_processed_video_name"] = video_name
+                st.session_state["last_processed_result"] = process_result
+                st.session_state["last_processed_video_name"] = process_result.get("video_name")
 
-                st.success("Tải YouTube video và xử lý thành công")
-                if result.get("message"):
-                    st.info(result["message"])
+                st.success(payload.get("message", "YouTube ingest thành công"))
+                st.json(payload)
 
-                st.markdown("### Ingest result")
-                st.json(ingest_result)
-
-                source_info = process_result.get("video_source_info") or ingest_result
-                if source_info:
+                if ingest_result:
                     st.markdown("### Nguồn video")
-                    show_source_info_block(source_info)
+                    show_source_info_block(ingest_result)
 
-                st.markdown("### Pipeline result")
-                st.json(process_result)
-
-                if video_name:
-                    show_video_preview(video_name, title="Video vừa tải từ YouTube và xử lý")
+                if process_result.get("video_name"):
+                    show_video_preview(process_result.get("video_name"), title="Video vừa ingest và xử lý")
             except Exception as e:
-                st.error(f"Lỗi khi ingest YouTube: {e}")
+                st.error(f"YouTube ingest failed: {e}")
 
 with tab5:
     st.subheader("Video Inventory")
@@ -595,68 +744,165 @@ with tab5:
         if not videos_inventory:
             st.info("Hiện chưa có video nào trong kho dữ liệu vector.")
         else:
-            for item in videos_inventory:
-                source_info = item.get("source_info", {}) or {}
-                title = source_info.get("video_title") or item.get("video_name")
-                with st.expander(f"{title} | {item.get('total_records', 0)} records"):
-                    if source_info:
-                        st.markdown("### Nguồn video")
-                        show_source_info_block(source_info)
-                    st.json(item)
+            selected_inventory_video = st.selectbox(
+                "Chọn video để xem chi tiết",
+                options=[item.get("video_name", "") for item in videos_inventory],
+                index=0,
+                key="inventory_select",
+            )
 
-    st.divider()
-    st.markdown("### Xóa dữ liệu của một video khỏi index")
+            selected_item = next(
+                (item for item in videos_inventory if item.get("video_name") == selected_inventory_video),
+                None,
+            )
 
-    delete_video_name = st.selectbox(
-        "Chọn video cần xóa",
-        options=videos if videos else ["Không có video"],
-        index=0,
-        key="delete_video_select",
-    )
+            if selected_item:
+                source_info = selected_item.get("source_info", {}) or {}
+                hints = limitation_hints_for_video(source_info)
+                time_range = selected_item.get("time_range", {}) or {}
+                start_val = time_range.get("min_start_time")
+                end_val = time_range.get("max_end_time")
 
-    if st.button("Xóa video khỏi index"):
-        if not videos:
-            st.warning("Không có video nào để xóa.")
-        else:
-            try:
-                response = requests.delete(
-                    f"{API_BASE}/videos/{delete_video_name}",
-                    timeout=60,
-                )
-                response.raise_for_status()
-                result = response.json()
+                st.markdown("### Video summary card")
+                c1, c2, c3 = st.columns(3)
 
-                if st.session_state.get("last_processed_video_name") == delete_video_name:
-                    st.session_state["last_processed_video_name"] = None
-                    st.session_state["last_processed_result"] = None
+                with c1:
+                    st.markdown("**Title**")
+                    st.write(source_info.get("video_title") or selected_item.get("video_name"))
+                    st.markdown("**Platform**")
+                    st.write(source_info.get("source_platform") or "unknown")
+                    st.markdown("**Indexed time range**")
+                    st.write(f"{format_seconds_to_hhmmss(start_val)} -> {format_seconds_to_hhmmss(end_val)}")
 
-                st.success(result.get("message", "Đã xóa dữ liệu video"))
-                st.json(result)
-                st.rerun()
-            except Exception as e:
-                st.error(f"Lỗi khi xóa dữ liệu video: {e}")
+                with c2:
+                    st.metric("Total indexed records", int(selected_item.get("total_records", 0) or 0))
+                    st.metric("Dominant modality", dominant_modality(selected_item.get("source_modality_counts", {})))
 
-    st.divider()
-    st.markdown("### Xem nhanh chi tiết 1 video")
+                with c3:
+                    st.markdown("**Recommended search mode**")
+                    st.write(get_recommended_search_mode(source_info))
+                    st.markdown("**Searchable types**")
+                    st.write(searchable_types_label(selected_item.get("content_type_counts", {})))
 
-    inspect_video_name = st.selectbox(
-        "Chọn video để xem chi tiết",
-        options=videos if videos else ["Không có video"],
-        index=0,
-        key="inspect_video_select",
-    )
+                st.write("Suggested queries:")
+                for q in get_suggested_queries(source_info):
+                    st.markdown(f"- {q}")
 
-    if st.button("Xem chi tiết video"):
-        if not videos:
-            st.warning("Không có video nào để xem.")
-        else:
-            detail = fetch_video_inventory(inspect_video_name)
-            if detail.get("error"):
-                st.error(f"Lỗi: {detail['error']}")
-            else:
-                source_info = detail.get("source_info", {}) or {}
+                if hints:
+                    for hint in hints:
+                        st.info(hint)
+
                 if source_info:
                     st.markdown("### Nguồn video")
                     show_source_info_block(source_info)
-                st.json(detail)
-                show_video_preview(inspect_video_name, title="Video đang xem chi tiết")
+
+                show_video_preview(selected_item.get("video_name"), title="Video preview from inventory")
+
+                st.markdown("### Video actions")
+                a1, a2, a3, a4 = st.columns(4)
+
+                with a1:
+                    if st.button("Re-index selected video", key=f"reindex_{selected_item['video_name']}"):
+                        try:
+                            data = call_reindex(selected_item["video_name"])
+                            st.success(data.get("message", "Re-index thành công."))
+                            st.json(data)
+                        except Exception as e:
+                            st.error(f"Re-index failed: {e}")
+
+                with a2:
+                    if st.button("Delete index only", key=f"delete_index_{selected_item['video_name']}"):
+                        try:
+                            response = requests.delete(
+                                f"{API_BASE}/videos/{selected_item['video_name']}",
+                                timeout=120,
+                            )
+                            response.raise_for_status()
+                            data = response.json()
+
+                            if st.session_state.get("last_processed_video_name") == selected_item["video_name"]:
+                                st.session_state["last_processed_video_name"] = None
+                                st.session_state["last_processed_result"] = None
+
+                            st.success(data.get("message", "Delete index thành công."))
+                            st.json(data)
+                        except Exception as e:
+                            st.error(f"Delete index failed: {e}")
+
+                with a3:
+                    if st.button("Delete local file only", key=f"delete_local_file_{selected_item['video_name']}"):
+                        try:
+                            data = call_cleanup(
+                                selected_item["video_name"],
+                                delete_raw=True,
+                                keep_catalog=True,
+                            )
+                            st.success(data.get("message", "Delete local file thành công."))
+                            st.json(data)
+                        except Exception as e:
+                            st.error(f"Delete local file failed: {e}")
+
+                with a4:
+                    if st.button("Delete index + local artifacts", key=f"delete_all_{selected_item['video_name']}"):
+                        try:
+                            delete_resp = requests.delete(
+                                f"{API_BASE}/videos/{selected_item['video_name']}",
+                                timeout=120,
+                            )
+                            delete_resp.raise_for_status()
+
+                            cleanup_data = call_cleanup(
+                                selected_item["video_name"],
+                                delete_raw=True,
+                                delete_audio=True,
+                                delete_frames=True,
+                                delete_interim_json=True,
+                                delete_processed=True,
+                                keep_catalog=True,
+                            )
+
+                            if st.session_state.get("last_processed_video_name") == selected_item["video_name"]:
+                                st.session_state["last_processed_video_name"] = None
+                                st.session_state["last_processed_result"] = None
+
+                            st.success("Deleted index + local artifacts.")
+                            st.json(
+                                {
+                                    "delete_index_result": delete_resp.json(),
+                                    "cleanup_result": cleanup_data,
+                                }
+                            )
+                        except Exception as e:
+                            st.error(f"Delete index + local artifacts failed: {e}")
+
+                st.markdown("### Advanced cleanup")
+                adv1, adv2, adv3, adv4, adv5 = st.columns(5)
+                delete_raw = adv1.checkbox("Delete raw", key=f"adv_raw_{selected_item['video_name']}")
+                delete_audio = adv2.checkbox("Delete audio", key=f"adv_audio_{selected_item['video_name']}")
+                delete_frames = adv3.checkbox("Delete frames", key=f"adv_frames_{selected_item['video_name']}")
+                delete_interim_json = adv4.checkbox("Delete interim json", key=f"adv_interim_{selected_item['video_name']}")
+                delete_processed = adv5.checkbox("Delete processed", key=f"adv_processed_{selected_item['video_name']}")
+                keep_catalog = st.checkbox(
+                    "Keep catalog entry",
+                    value=True,
+                    key=f"adv_keep_catalog_{selected_item['video_name']}",
+                )
+
+                if st.button("Run advanced cleanup", key=f"run_adv_cleanup_{selected_item['video_name']}"):
+                    try:
+                        data = call_cleanup(
+                            selected_item["video_name"],
+                            delete_raw=delete_raw,
+                            delete_audio=delete_audio,
+                            delete_frames=delete_frames,
+                            delete_interim_json=delete_interim_json,
+                            delete_processed=delete_processed,
+                            keep_catalog=keep_catalog,
+                        )
+                        st.success(data.get("message", "Advanced cleanup hoàn tất."))
+                        st.json(data)
+                    except Exception as e:
+                        st.error(f"Advanced cleanup failed: {e}")
+
+                st.markdown("### Inventory JSON")
+                st.json(selected_item)

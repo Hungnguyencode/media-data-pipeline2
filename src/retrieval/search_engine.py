@@ -33,43 +33,70 @@ class SearchEngine:
         self.clip_search_beta = float(pipeline_cfg.get("clip_search_beta", 0.65))
         self.hybrid_candidate_multiplier = int(pipeline_cfg.get("hybrid_candidate_multiplier", 3))
 
+        retrieval_cfg = self.config.get("retrieval", {})
+        self.topic_bonus_for_talk = float(retrieval_cfg.get("topic_bonus_for_talk", 0.08))
+        self.action_bonus_for_action_video = float(retrieval_cfg.get("action_bonus_for_action_video", 0.06))
+        self.visual_bonus_for_visual_video = float(retrieval_cfg.get("visual_bonus_for_visual_video", 0.06))
+        self.audio_penalty_for_cinematic_music = float(retrieval_cfg.get("audio_penalty_for_cinematic_music", 0.08))
+        self.multimodal_bonus_for_talk = float(retrieval_cfg.get("multimodal_bonus_for_talk", 0.04))
+
         self.query_action_groups: Dict[str, Set[str]] = {
-            "break_open": {"break", "breaking", "crack", "cracking", "open", "opening", "split", "splitting", "separate", "separating", "shell", "shelling"},
-            "cut_divide": {"cut", "cutting", "slice", "slicing", "chop", "chopping", "dice", "dicing", "halve", "halving"},
-            "mix_agitate": {"mix", "mixing", "stir", "stirring", "whisk", "whisking", "beat", "beating", "blend", "blending"},
-            "pour_transfer": {"pour", "pouring", "add", "adding", "transfer", "transferring", "empty", "emptying"},
-            "peel_remove_outer": {"peel", "peeling", "remove", "removing", "strip", "stripping"},
-            "hold_pick_place": {"hold", "holding", "pick", "picking", "place", "placing", "put", "putting", "grab", "grabbing"},
-            "squeeze_press": {"squeeze", "squeezing", "press", "pressing", "pinch", "pinching"},
+            "break_open": {
+                "break", "breaking", "crack", "cracking", "open", "opening",
+                "split", "splitting", "separate", "separating", "shell", "shelling",
+            },
+            "cut_divide": {
+                "cut", "cutting", "slice", "slicing", "chop", "chopping",
+                "dice", "dicing", "halve", "halving",
+            },
+            "mix_agitate": {
+                "mix", "mixing", "stir", "stirring", "whisk", "whisking",
+                "beat", "beating", "blend", "blending",
+            },
+            "pour_transfer": {
+                "pour", "pouring", "add", "adding", "transfer", "transferring",
+                "empty", "emptying",
+            },
+            "peel_remove_outer": {
+                "peel", "peeling", "remove", "removing", "strip", "stripping",
+            },
+            "hold_pick_place": {
+                "hold", "holding", "pick", "picking", "place", "placing",
+                "put", "putting", "grab", "grabbing",
+            },
+            "squeeze_press": {
+                "squeeze", "squeezing", "press", "pressing", "pinch", "pinching",
+            },
         }
 
         self.object_like_tokens: Set[str] = {
-            "egg",
-            "eggs",
-            "milk",
-            "water",
-            "oil",
-            "juice",
-            "sauce",
-            "cream",
-            "bowl",
-            "spoon",
-            "cup",
-            "glass",
-            "knife",
-            "pan",
-            "jar",
-            "bottle",
-            "onion",
-            "garlic",
-            "tomato",
-            "fruit",
-            "whisk",
-            "yolk",
-            "white",
+            "egg", "eggs", "milk", "water", "oil", "juice", "sauce", "cream",
+            "bowl", "spoon", "cup", "glass", "knife", "pan", "jar", "bottle",
+            "onion", "garlic", "tomato", "fruit", "whisk", "yolk", "white",
+            "bird", "sky", "forest", "road", "car", "beach", "ocean", "animal",
+            "bed", "camera", "face", "portrait",
+        }
+
+        self.person_like_tokens: Set[str] = {
+            "person", "people",
+            "man", "men",
+            "woman", "women",
+            "girl", "girls",
+            "boy", "boys",
+            "someone", "face",
+            "hand", "hands",
+        }
+
+        self.human_scene_tokens: Set[str] = {
+            "camera", "smile", "smiling", "wave", "waving",
+            "bed", "lying", "laying",
+            "portrait", "selfie", "face",
+            "close", "up",
         }
 
         self.audio_only_content_types = {"transcription", "segment_chunk"}
+        self.visual_content_types = {"caption"}
+        self.multimodal_content_types = {"multimodal"}
 
     def _distance_to_similarity_proxy(self, distance: Optional[float]) -> Optional[float]:
         if distance is None:
@@ -122,6 +149,7 @@ class SearchEngine:
         distances = raw.get("distances", [[]])[0]
 
         for doc, meta, distance in zip(documents, metadatas, distances):
+            meta = meta or {}
             similarity_proxy = self._distance_to_similarity_proxy(distance)
             weighted_score = (similarity_proxy or 0.0) * score_weight
 
@@ -144,7 +172,7 @@ class SearchEngine:
         return (
             str(meta.get("video_name", "")),
             str(meta.get("content_type", "")),
-            str(meta.get("frame_name") or meta.get("timestamp") or item.get("document", "")),
+            str(meta.get("frame_name") or meta.get("timestamp") or meta.get("start_time") or item.get("document", "")),
         )
 
     def _fuse_results(
@@ -198,6 +226,44 @@ class SearchEngine:
             return set()
         return set(normalized.split())
 
+    def _contains_number_two(self, text: str) -> bool:
+        normalized = f" {self._normalize_text(text)} "
+        return (" two " in normalized) or (" 2 " in normalized)
+
+    def _classify_query_type(self, query: str) -> str:
+        tokens = self._tokenize(query)
+        if not tokens:
+            return "generic"
+
+        topic_tokens = {
+            "happiness", "relationship", "relationships", "connection", "motivation",
+            "strategy", "speech", "idea", "meaning", "topic", "human", "love",
+            "hanh", "phuc", "ket", "noi", "moi", "quan", "he",
+        }
+        visual_tokens = {
+            "sky", "forest", "bird", "animal", "ocean", "beach", "road", "scene",
+            "cảnh", "bầu", "trời", "chim", "rừng",
+        }
+        human_visual_tokens = {
+            "camera", "face", "portrait", "smile", "smiling", "waving", "wave", "bed",
+            "guy", "guys", "girl", "girls", "boy", "boys", "man", "men", "woman", "women",
+            "people", "person",
+        }
+
+        action_groups = self._extract_query_action_groups(query)
+
+        if action_groups:
+            return "action"
+        if tokens.intersection(topic_tokens):
+            return "topic"
+        if tokens.intersection(visual_tokens):
+            return "visual"
+        if tokens.intersection(human_visual_tokens):
+            return "visual"
+        if any(token in tokens for token in {"speech", "audio", "voice", "nói", "giọng"}):
+            return "audio"
+        return "generic"
+
     def _extract_query_action_groups(self, query: str) -> Set[str]:
         tokens = self._tokenize(query)
         matched_groups: Set[str] = set()
@@ -208,7 +274,6 @@ class SearchEngine:
 
     def _extract_action_groups_from_result(self, item: Dict[str, Any]) -> Set[str]:
         meta = item.get("metadata", {}) or {}
-
         search_space = " ".join(
             [
                 str(meta.get("caption_text_original", "") or ""),
@@ -258,10 +323,52 @@ class SearchEngine:
             [
                 str(meta.get("caption_text_original", "") or ""),
                 str(meta.get("search_text", "") or ""),
+                str(item.get("document", "") or ""),
             ]
         )
         tokens = self._tokenize(text)
-        return bool(tokens.intersection({"person", "hand", "hands", "someone"}))
+        return bool(tokens.intersection(self.person_like_tokens))
+
+    def _has_human_scene_signal(self, item: Dict[str, Any]) -> bool:
+        meta = item.get("metadata", {}) or {}
+        text = " ".join(
+            [
+                str(meta.get("caption_text_original", "") or ""),
+                str(meta.get("search_text", "") or ""),
+                str(item.get("document", "") or ""),
+            ]
+        )
+        tokens = self._tokenize(text)
+        if tokens.intersection(self.human_scene_tokens):
+            return True
+
+        normalized = self._normalize_text(text)
+        return "close up" in normalized
+
+    def _has_multiple_people_signal(self, item: Dict[str, Any], query: str) -> bool:
+        meta = item.get("metadata", {}) or {}
+        text = " ".join(
+            [
+                query,
+                str(meta.get("caption_text_original", "") or ""),
+                str(meta.get("search_text", "") or ""),
+                str(item.get("document", "") or ""),
+            ]
+        )
+        normalized = self._normalize_text(text)
+        return (
+            "two people" in normalized
+            or "two men" in normalized
+            or "two women" in normalized
+            or "two girls" in normalized
+            or "two boys" in normalized
+            or "two guys" in normalized
+            or "2 people" in normalized
+            or "2 men" in normalized
+            or "2 women" in normalized
+            or "2 guys" in normalized
+            or self._contains_number_two(text)
+        )
 
     def _modality_bonus(self, item: Dict[str, Any], has_action_query: bool, has_action_match: bool) -> float:
         meta = item.get("metadata", {}) or {}
@@ -277,6 +384,85 @@ class SearchEngine:
         if content_type in self.audio_only_content_types:
             return -0.04
         return 0.0
+
+    def _metadata_bonus(self, item: Dict[str, Any], query_type: str) -> float:
+        meta = item.get("metadata", {}) or {}
+        style = str(meta.get("estimated_content_style", "") or "").strip()
+        content_type = str(meta.get("content_type", "") or "").strip()
+
+        bonus = 0.0
+
+        if query_type == "topic":
+            if style == "talk":
+                bonus += self.topic_bonus_for_talk
+            if content_type == "multimodal":
+                bonus += self.multimodal_bonus_for_talk
+
+        elif query_type == "action":
+            if style == "action":
+                bonus += self.action_bonus_for_action_video
+            if content_type in {"caption", "multimodal"}:
+                bonus += 0.02
+
+        elif query_type == "visual":
+            if style in {"visual", "cinematic_music"}:
+                bonus += self.visual_bonus_for_visual_video
+            if content_type == "caption":
+                bonus += 0.02
+            if content_type == "multimodal":
+                bonus += 0.01
+
+        elif query_type == "audio":
+            if style == "talk" and content_type in {"transcription", "segment_chunk", "multimodal"}:
+                bonus += 0.03
+
+        return round(bonus, 6)
+
+    def _style_aware_modality_bonus(self, item: Dict[str, Any], query_type: str) -> float:
+        meta = item.get("metadata", {}) or {}
+        style = str(meta.get("estimated_content_style", "") or "").strip()
+        content_type = str(meta.get("content_type", "") or "").strip()
+
+        if style == "cinematic_music" and content_type in self.audio_only_content_types:
+            return round(-self.audio_penalty_for_cinematic_music, 6)
+
+        if style == "talk" and query_type == "topic" and content_type in {"segment_chunk", "multimodal"}:
+            return 0.02
+
+        if style == "action" and query_type == "action" and content_type in {"caption", "multimodal"}:
+            return 0.02
+
+        return 0.0
+
+    def _human_scene_bonus(self, item: Dict[str, Any], query: str) -> float:
+        query_tokens = self._tokenize(query)
+        if not query_tokens:
+            return 0.0
+
+        human_query_tokens = {
+            "camera", "face", "portrait", "smile", "smiling", "wave", "waving",
+            "bed", "lying", "laying",
+            "guy", "guys", "girl", "girls", "boy", "boys",
+            "man", "men", "woman", "women", "people", "person",
+        }
+
+        if not query_tokens.intersection(human_query_tokens) and not self._contains_number_two(query):
+            return 0.0
+
+        bonus = 0.0
+
+        has_person_signal = self._has_person_or_hand_signal(item)
+        has_human_scene_signal = self._has_human_scene_signal(item)
+        has_multiple_people_signal = self._has_multiple_people_signal(item, query)
+
+        if has_person_signal:
+            bonus += 0.02
+        if has_human_scene_signal:
+            bonus += 0.03
+        if self._contains_number_two(query) and has_multiple_people_signal:
+            bonus += 0.02
+
+        return round(bonus, 6)
 
     def _soft_semantic_bonus(self, item: Dict[str, Any], query: str) -> float:
         meta = item.get("metadata", {}) or {}
@@ -335,23 +521,72 @@ class SearchEngine:
             if has_object_overlap:
                 object_bonus += 0.015
 
-        final_bonus = token_bonus + alias_bonus + action_bonus + object_bonus + static_penalty + modality_bonus
+        human_scene_bonus = self._human_scene_bonus(item, query)
+
+        final_bonus = (
+            token_bonus
+            + alias_bonus
+            + action_bonus
+            + object_bonus
+            + static_penalty
+            + modality_bonus
+            + human_scene_bonus
+        )
         return round(final_bonus, 6)
 
     def _apply_soft_rerank(self, results: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
         reranked: List[Dict[str, Any]] = []
+        query_type = self._classify_query_type(query)
 
         for item in results:
-            bonus = self._soft_semantic_bonus(item, query)
+            semantic_bonus = self._soft_semantic_bonus(item, query)
+            metadata_bonus = self._metadata_bonus(item, query_type)
+            style_bonus = self._style_aware_modality_bonus(item, query_type)
+            total_bonus = semantic_bonus + metadata_bonus + style_bonus
+
             updated = dict(item)
-            updated["fusion_score"] = round(updated.get("fusion_score", 0.0) + bonus, 6)
+            updated["fusion_score"] = round(updated.get("fusion_score", 0.0) + total_bonus, 6)
             updated["relevance"] = updated["fusion_score"]
-            if bonus != 0:
+            updated["query_type"] = query_type
+
+            if total_bonus != 0:
                 updated["score_type"] = "hybrid_fusion+rerank"
+
             reranked.append(updated)
 
         reranked.sort(key=lambda x: x.get("fusion_score", 0.0), reverse=True)
         return reranked
+
+    def _get_anchor_timestamp(self, meta: Dict[str, Any]) -> Optional[float]:
+        timestamp = meta.get("timestamp")
+        if timestamp is not None:
+            try:
+                return float(timestamp)
+            except Exception:
+                pass
+
+        start_time = meta.get("start_time")
+        end_time = meta.get("end_time")
+
+        try:
+            if start_time is not None and end_time is not None:
+                return (float(start_time) + float(end_time)) / 2.0
+        except Exception:
+            pass
+
+        try:
+            if start_time is not None:
+                return float(start_time)
+        except Exception:
+            pass
+
+        try:
+            if end_time is not None:
+                return float(end_time)
+        except Exception:
+            pass
+
+        return None
 
     def _find_nearby_speech_context(
         self,
@@ -423,58 +658,86 @@ class SearchEngine:
         if not results:
             return []
 
-        sorted_results = sorted(
-            results,
-            key=lambda x: (
-                str((x.get("metadata") or {}).get("video_name", "")),
-                float((x.get("metadata") or {}).get("timestamp", 0.0) or 0.0),
-            ),
-        )
+        sortable: List[Tuple[str, float, Dict[str, Any]]] = []
+        remainder: List[Dict[str, Any]] = []
+
+        for item in results:
+            meta = item.get("metadata", {}) or {}
+            video_name = str(meta.get("video_name", ""))
+            anchor_ts = self._get_anchor_timestamp(meta)
+            if anchor_ts is None:
+                remainder.append(item)
+            else:
+                sortable.append((video_name, anchor_ts, item))
+
+        sortable.sort(key=lambda x: (x[0], x[1]))
 
         groups: List[List[Dict[str, Any]]] = []
         current_group: List[Dict[str, Any]] = []
+        current_video = ""
+        current_anchor = None
 
-        for item in sorted_results:
-            meta = item.get("metadata", {}) or {}
-            video_name = str(meta.get("video_name", ""))
-            timestamp = float(meta.get("timestamp", 0.0) or 0.0)
-
+        for video_name, anchor_ts, item in sortable:
             if not current_group:
                 current_group = [item]
+                current_video = video_name
+                current_anchor = anchor_ts
                 continue
 
-            prev_meta = current_group[-1].get("metadata", {}) or {}
-            prev_video_name = str(prev_meta.get("video_name", ""))
-            prev_timestamp = float(prev_meta.get("timestamp", 0.0) or 0.0)
-
-            same_video = video_name == prev_video_name
-            close_in_time = abs(timestamp - prev_timestamp) <= event_gap_sec
+            same_video = video_name == current_video
+            close_in_time = current_anchor is not None and abs(anchor_ts - current_anchor) <= event_gap_sec
 
             if same_video and close_in_time:
                 current_group.append(item)
+                current_anchor = anchor_ts
             else:
                 groups.append(current_group)
                 current_group = [item]
+                current_video = video_name
+                current_anchor = anchor_ts
 
         if current_group:
             groups.append(current_group)
+
+        for item in remainder:
+            groups.append([item])
 
         event_results: List[Dict[str, Any]] = []
         for group in groups:
             best_item = max(group, key=lambda x: x.get("fusion_score", 0.0))
 
-            timestamps = []
+            starts = []
+            ends = []
+            anchors = []
+
             for g in group:
                 meta = g.get("metadata", {}) or {}
-                ts = meta.get("timestamp")
-                if ts is not None:
-                    try:
-                        timestamps.append(float(ts))
-                    except Exception:
-                        pass
+                start_time = meta.get("start_time")
+                end_time = meta.get("end_time")
+                anchor_ts = self._get_anchor_timestamp(meta)
 
-            event_start = min(timestamps) if timestamps else None
-            event_end = max(timestamps) if timestamps else None
+                if anchor_ts is not None:
+                    anchors.append(anchor_ts)
+
+                try:
+                    if start_time is not None:
+                        starts.append(float(start_time))
+                except Exception:
+                    pass
+
+                try:
+                    if end_time is not None:
+                        ends.append(float(end_time))
+                except Exception:
+                    pass
+
+            if not starts and anchors:
+                starts = anchors[:]
+            if not ends and anchors:
+                ends = anchors[:]
+
+            event_start = min(starts) if starts else None
+            event_end = max(ends) if ends else None
 
             event_item = dict(best_item)
             event_item["group_size"] = len(group)
@@ -496,7 +759,7 @@ class SearchEngine:
 
             nearby_speech = self._find_nearby_speech_context(
                 video_name=meta.get("video_name"),
-                center_timestamp=meta.get("timestamp"),
+                center_timestamp=self._get_anchor_timestamp(meta),
                 window_sec=4.0,
             )
             event_item["nearby_speech_context"] = nearby_speech
@@ -534,9 +797,7 @@ class SearchEngine:
             convert_to_numpy=True,
             normalize_embeddings=True,
         )[0]
-        text_query_embedding = (
-            text_embedding.tolist() if hasattr(text_embedding, "tolist") else list(text_embedding)
-        )
+        text_query_embedding = text_embedding.tolist() if hasattr(text_embedding, "tolist") else list(text_embedding)
 
         text_results = self._query_collection(
             collection=self.text_collection,
@@ -548,13 +809,14 @@ class SearchEngine:
         )
 
         clip_results: List[Dict[str, Any]] = []
-        if content_type in (None, "caption"):
+        if content_type in (None, "caption", "multimodal"):
+            clip_where = self._build_where_clause(content_type="caption", video_name=video_name)
             clip_query_embedding = self.vision_processor.encode_text_for_clip([query])[0]
             clip_results = self._query_collection(
                 collection=self.clip_collection,
                 query_embedding=clip_query_embedding,
                 top_k=candidate_k,
-                where_clause=where_clause,
+                where_clause=clip_where,
                 score_type="clip_text_image_similarity",
                 score_weight=self.clip_search_beta,
             )

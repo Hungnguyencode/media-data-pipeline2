@@ -1,58 +1,74 @@
-# Run Demo Guide
+# Hướng Dẫn Chạy Demo Hệ Thống
 
-## 1. Chuẩn bị môi trường
+## 1. Mục đích của tài liệu này
 
-### 1.1. Tạo virtual environment
+Tài liệu này hướng dẫn cách chuẩn bị môi trường, chạy hệ thống, và trình bày demo cho phiên bản **Media Semantic Search v2.2.0**.
+
+Mục tiêu khi demo là thể hiện được các điểm sau:
+
+- ingest video từ local hoặc **YouTube URL**,
+- pipeline xử lý audio + frame,
+- semantic search đa phương thức,
+- inventory video đã index,
+- metadata nguồn video,
+- event grouping và nearby speech context.
+
+---
+
+## 2. Chuẩn bị môi trường
+
+### 2.1. Tạo virtual environment
 ```bash
 python -m venv venv
 ```
 
-### 1.2. Kích hoạt môi trường
+### 2.2. Kích hoạt môi trường
 Windows:
 ```bash
 venv\Scripts\activate
 ```
 
-### 1.3. Cài dependencies
+### 2.3. Cài dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 1.4. Cài PyTorch theo môi trường máy
+### 2.4. Cài PyTorch theo môi trường máy
 Ví dụ với CUDA:
 ```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
-### 1.5. Cài FFmpeg / FFprobe
+### 2.5. Cài FFmpeg / FFprobe
 Đảm bảo cả `ffmpeg` và `ffprobe` chạy được trong terminal.
 
-### 1.6. Cài cache model trước nếu có thể
+### 2.6. Cache model trước nếu có thể
 Nếu đã từng chạy:
 - Whisper
 - BLIP
 - OpenCLIP
 - SentenceTransformers
 
-thì nên giữ cache model sẵn để lúc demo không bị tải model lại.
+thì nên giữ cache model sẵn để lúc demo không phải tải lại.
 
 ---
 
-## 2. Chạy backend API
+## 3. Chạy backend API
 
 ```bash
 uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
-API:
-- `http://127.0.0.1:8000`
+Địa chỉ:
+- API: `http://127.0.0.1:8000`
 - Swagger docs: `http://127.0.0.1:8000/docs`
 
-> Khi demo chính thức, nên chạy không có `--reload` để tránh reload ngoài ý muốn.
+Lưu ý:
+- khi demo chính thức, nên chạy **không có `--reload`** để tránh reload ngoài ý muốn.
 
 ---
 
-## 3. Chạy Streamlit UI
+## 4. Chạy Streamlit UI
 
 Mở terminal khác:
 
@@ -60,12 +76,12 @@ Mở terminal khác:
 streamlit run ui/app.py
 ```
 
-UI:
-- `http://localhost:8501`
+Địa chỉ:
+- UI: `http://localhost:8501`
 
 ---
 
-## 4. Chạy test trước demo
+## 5. Chạy test trước demo
 
 ```bash
 pytest -v
@@ -75,9 +91,26 @@ Mục tiêu:
 - đảm bảo test pass trước khi demo,
 - xác nhận API, pipeline, retrieval, ingest và transform đang ổn.
 
+Nếu bạn đang dùng đúng bản hiện tại, kỳ vọng là toàn bộ test pass.
+
 ---
 
-## 5. Kiểm tra cấu hình demo
+## 6. Chạy evaluation trước khi demo
+
+```bash
+python evaluation/run_eval.py
+```
+
+Điều này hữu ích nếu bạn muốn trình bày thêm phần đánh giá.
+
+Lưu ý:
+- `evaluation/benchmark_cases.json` là **bộ benchmark nhập thủ công**,
+- `run_eval.py` chỉ đọc file đó và chấm tự động,
+- benchmark này **không tự sinh case mới**.
+
+---
+
+## 7. Kiểm tra cấu hình demo
 
 File cấu hình chính: `configs/config.yaml`
 
@@ -91,18 +124,18 @@ video:
   max_frame_height: 540
 ```
 
-Đây là cấu hình cân bằng để demo nhiều loại video khác nhau.
-
 ### Ý nghĩa
-- `1.0 fps`: lấy khoảng 1 frame mỗi giây
-- `240 frames`: cho coverage tốt hơn video dài vừa phải
-- phù hợp để dùng chung cho talk, cooking, wildlife, tutorial ở mức demo
+- `1.0 fps`: lấy khoảng 1 frame mỗi giây,
+- `240 frames`: cho coverage tốt hơn với video dài vừa phải,
+- phù hợp để demo nhiều loại video khác nhau.
 
-> Nếu thay đổi config sampling, nhớ restart backend và process lại video.
+Nếu thay đổi config sampling:
+- nhớ restart backend,
+- và process lại video nếu cần.
 
 ---
 
-## 6. Video catalog metadata
+## 8. Video catalog metadata
 
 Hệ thống dùng file:
 
@@ -112,41 +145,41 @@ data/video_catalog.json
 
 để lưu metadata nguồn video.
 
-Một entry điển hình:
+Một entry thường có:
 
 ```json
 {
-  "video_name": "self_motivation_brendan_clark_tedxyouthbarnstablehs_rLXcLBfDwvE.mp4",
-  "local_video_path": "data/raw/self_motivation_brendan_clark_tedxyouthbarnstablehs_rLXcLBfDwvE.mp4",
+  "video_name": "egg.mp4",
+  "local_video_path": "data/raw/egg.mp4",
   "source_platform": "youtube",
-  "source_url": "https://www.youtube.com/watch?v=rLXcLBfDwvE",
-  "title": "Self Motivation | Brendan Clark | TEDxYouth@BarnstableHS",
-  "description": "Youth speaker Brendan Clark shares his philosophy of motivation and the winning strategy.",
-  "thumbnail_url": "https://i.ytimg.com/vi/rLXcLBfDwvE/maxresdefault.jpg",
-  "tags": ["TEDxTalks", "English", "United States"],
-  "created_at": "2026-03-30T00:00:00",
-  "ingested_at": "2026-03-30T00:00:00"
+  "source_url": "https://www.youtube.com/watch?v=...",
+  "title": "...",
+  "description": "...",
+  "thumbnail_url": "...",
+  "tags": ["..."],
+  "created_at": "2026-03-27T00:00:00",
+  "ingested_at": "2026-03-29T15:44:59"
 }
 ```
 
 ### Lưu ý quan trọng
 - `video_name` phải khớp tên file thật.
-- Nếu video local mới chưa có entry, pipeline hiện tại có thể **tự tạo catalog entry cơ bản**.
+- Nếu là video local mới, pipeline có thể tự tạo catalog entry cơ bản.
 - Nếu ingest bằng YouTube URL, hệ thống sẽ tự cập nhật metadata nguồn.
-- Nếu cậu sửa metadata nguồn bằng tay, nên **process lại video với reset index** để metadata mới đi vào vector DB.
+- Nếu sửa metadata bằng tay, nên **re-index video** để metadata mới đi vào vector DB.
 
 ---
 
-## 7. Ba cách đưa video vào hệ thống
+## 9. Ba cách đưa video vào hệ thống
 
 ### Cách 1: Process by YouTube URL
 Đây là điểm mới quan trọng của Bản 2.
 
 Luồng:
-1. mở tab **Process by YouTube URL**
-2. nhập YouTube URL
-3. bật `reset_index`
-4. bấm **Download & Process**
+1. mở tab **Process by YouTube URL**,
+2. nhập YouTube URL,
+3. bật `reset_index` nếu muốn làm mới index,
+4. bấm **Download & Process**.
 
 Hệ thống sẽ:
 - canonicalize URL,
@@ -159,10 +192,10 @@ Hệ thống sẽ:
 Đây là cách ổn định nhất nếu video đã có sẵn local.
 
 Luồng:
-1. mở tab **Process by Path**
-2. nhập đường dẫn video trên máy backend
-3. bật `reset_index`
-4. bấm **Process Video by Path**
+1. mở tab **Process by Path**,
+2. nhập đường dẫn video trên máy backend,
+3. bật `reset_index` nếu cần,
+4. bấm **Process Video by Path**.
 
 Ví dụ:
 
@@ -172,120 +205,113 @@ C:\Users\Admin\media-data-pipeline2\data\raw\egg.mp4
 
 ### Cách 3: Upload & Process
 Luồng:
-1. mở tab **Upload & Process**
-2. chọn file video
-3. bật `reset_index` nếu cần
-4. bấm **Upload & Process**
+1. mở tab **Upload & Process**,
+2. chọn file video,
+3. bật `reset_index` nếu cần,
+4. bấm **Upload & Process**.
 
 ### Khác biệt thực tế
-- `Process by YouTube URL`: tiện nhất để thể hiện Bản 2.
-- `Process by Path`: ổn định nhất nếu cậu đã có video local.
-- `Upload & Process`: tiện khi muốn nạp nhanh file demo từ máy.
+- `Process by YouTube URL`: tiện nhất để thể hiện nâng cấp của Bản 2.
+- `Process by Path`: ổn định nhất nếu video đã có sẵn.
+- `Upload & Process`: tiện khi muốn nạp nhanh file từ máy demo.
 
 ---
 
-## 8. Các loại video phù hợp để demo
+## 10. Các loại video phù hợp để demo
 
-Những nhóm video khá hợp với pipeline hiện tại:
+Những nhóm video hợp với pipeline hiện tại:
 
-- talk / TED / presentation
-- cooking
-- tutorial / how-to
-- DIY / hands-on
-- wildlife / nature
-- fitness / yoga
-- product review / unboxing
-- cinematic vlog / short film
+- talk / TED / presentation,
+- cooking,
+- tutorial / how-to,
+- wildlife / nature,
+- cinematic vlog / short film,
+- music/cinematic clip để minh họa visual-heavy retrieval.
 
 ### Gợi ý thực tế
-- `egg.mp4` để demo action ngắn
-- `ted_happier.mp4` để demo semantic topic retrieval
-- `Self Motivation | Brendan Clark | TEDxYouth@BarnstableHS` để demo YouTube ingest + semantic topic search
-- wildlife / cinematic video để test độ đa dạng
+- `egg.mp4` để demo action ngắn,
+- `ted_happier.mp4` để demo semantic topic retrieval,
+- một video TED khác để demo YouTube ingest,
+- wildlife / cinematic video để test visual search.
 
 ---
 
-## 9. Luồng demo khuyến nghị cho Bản 2
+## 11. Luồng demo khuyến nghị cho Bản 2
 
 ### Demo 1: chứng minh ingest YouTube
-1. chạy API
-2. chạy Streamlit
-3. vào tab **Process by YouTube URL**
-4. nhập 1 YouTube URL sạch
-5. bấm **Download & Process**
+1. chạy API,
+2. chạy Streamlit,
+3. vào tab **Process by YouTube URL**,
+4. nhập 1 YouTube URL sạch,
+5. bấm **Download & Process**,
 6. chỉ ra:
-   - video được tải về `data/raw`
-   - metadata nguồn được hiển thị
-   - pipeline chạy xong
-   - video xuất hiện trong inventory
+   - video được tải về `data/raw`,
+   - metadata nguồn được cập nhật,
+   - pipeline chạy xong,
+   - video xuất hiện trong inventory.
 
 ### Demo 2: chứng minh semantic search
-1. vào tab **Search**
-2. chọn video vừa ingest
-3. thử 2–3 query đẹp nhất
+1. vào tab **Search**,
+2. chọn video vừa ingest,
+3. thử 2–3 query đẹp nhất,
 4. giải thích:
-   - matched frame
-   - timestamp
-   - event range
-   - nearby speech context
-   - score type
-   - source metadata
+   - matched frame,
+   - timestamp,
+   - event range,
+   - nearby speech context,
+   - score type,
+   - source metadata.
 
 ### Demo 3: chứng minh inventory
-1. vào tab **Video Inventory**
-2. mở chi tiết video
+1. vào tab **Video Inventory**,
+2. mở chi tiết video,
 3. cho thấy:
-   - total records
-   - content type counts
-   - source modality counts
-   - language
-   - source info
-   - time range
+   - total records,
+   - content type counts,
+   - source modality counts,
+   - language,
+   - source info,
+   - time range.
 
 ---
 
-## 10. Những gì cần kiểm tra sau khi process xong
+## 12. Những gì cần kiểm tra sau khi process xong
 
-### 10.1. Dữ liệu trung gian
+### 12.1. Dữ liệu trung gian
 - `data/interim/audio/`
 - `data/interim/frames/`
 - `data/interim/transcripts/`
 - `data/interim/captions/`
 
-### 10.2. Dữ liệu đã xử lý
+### 12.2. Dữ liệu đã xử lý
 - `data/processed/`
 
-### 10.3. Vector database
+### 12.3. Vector database
 - `data/vector_db/`
 
-### 10.4. Inventory
-- vào tab **Video Inventory**
-- kiểm tra:
-  - total videos
-  - total records
-  - content type counts
-  - source modality counts
-  - language
-  - source info
-  - time range
+### 12.4. Inventory
+Vào tab **Video Inventory** hoặc dùng API để kiểm tra:
+- total videos,
+- total records,
+- content type counts,
+- source modality counts,
+- languages,
+- source info,
+- time range.
 
 ---
 
-## 11. Query gợi ý để demo
+## 13. Query gợi ý để demo
 
-### 11.1. Với video talk / TED
+### 13.1. Với video talk / TED
 - `human connection`
-- `feeling connected and loved`
-- `what makes people happier`
 - `relationships`
 - `happiness`
 - `self motivation`
 - `winning strategy`
-- `success mindset`
 - `motivational speech`
-- `TEDx speaker`
 
-### 11.2. Với video trứng / cooking
+### 13.2. Với video cooking / trứng
 - `crack egg`
 - `separate egg`
 - `egg yolk`
@@ -294,24 +320,21 @@ Những nhóm video khá hợp với pipeline hiện tại:
 - `lòng đỏ trứng`
 - `lòng trắng trứng`
 
-### 11.3. Với wildlife / nature
+### 13.3. Với wildlife / nature
 - `bird flying`
-- `fish swimming`
-- `animals hunting`
-- `wildlife diversity`
 - `forest animals`
-- `underwater animals`
+- `wildlife diversity`
+- `fish swimming`
 
-### 11.4. Với cinematic / vlog
-- `driving through forest`
-- `beach scene`
+### 13.4. Với cinematic / vlog
 - `summer sky`
-- `person walking outdoors`
 - `car on road`
+- `beach scene`
+- `person walking outdoors`
 
 ---
 
-## 12. Chọn content type khi search
+## 14. Cách chọn content type khi search
 
 ### Query chủ đề / ý nghĩa
 Ưu tiên:
@@ -332,85 +355,89 @@ Ví dụ:
 Ví dụ:
 - `crack egg`
 - `bird flying`
-- `car on forest road`
+- `car on road`
 
 ### Query thiên về lời nói
 Ưu tiên:
 - `transcription`
 - `segment_chunk`
 
-> Nếu chưa chắc, để `Tất cả` rồi quan sát loại kết quả trả về.
+Nếu chưa chắc, có thể để tất cả rồi quan sát loại kết quả trả về.
 
 ---
 
-## 13. Cách đọc kết quả khi demo
+## 15. Cách đọc kết quả khi demo
 
 Mỗi kết quả thường có:
-- `Matched frame description`
-- `Auto-caption`
-- `Nearby speech context`
-- `Similarity proxy`
-- `Distance`
-- `Score type`
-- `timestamp`
-- `event time range`
-- `content_type`
-- `source_modality`
-- `source info`
+- `display_text` hoặc `display_caption`,
+- `nearby_speech_context`,
+- `similarity_score`,
+- `distance`,
+- `score_type`,
+- `timestamp` hoặc `event time range`,
+- `content_type`,
+- `source_modality`,
+- `source info`.
 
-### Giải thích ngắn gọn khi trình bày
-- **Matched frame description**: mô tả frame hoặc đoạn nội dung phù hợp nhất
-- **Auto-caption**: caption tự động, chỉ mang tính tham khảo
-- **Nearby speech context**: speech gần mốc thời gian đó
-- **Similarity proxy**: điểm tương đối từ kết quả retrieval
-- **Event range**: khoảng thời gian gần đúng của cụm frame phù hợp
+### Giải thích ngắn khi trình bày
+- **Caption/matched text**: mô tả nội dung phù hợp nhất,
+- **Nearby speech context**: lời nói gần vị trí đó,
+- **Similarity score**: điểm tương đối từ retrieval,
+- **Event range**: khoảng thời gian gần đúng của cụm kết quả,
+- **Source metadata**: thông tin nguồn gốc video.
 
 ---
 
-## 14. Những điểm nên nhấn mạnh khi demo
+## 16. Những điểm nên nhấn mạnh khi demo
 
 - Hệ thống không chỉ dựa vào transcript.
 - Mỗi video được xử lý theo cả **audio** và **image**.
 - Search đang dùng **hybrid retrieval**:
-  - text embedding
-  - CLIP text-image
+  - text embedding,
+  - CLIP text-image,
+  - soft rerank.
 - Hệ thống có **event grouping** để gom các frame gần nhau thành một kết quả dễ hiểu hơn.
-- Kết quả còn gắn với **metadata nguồn video** để hỗ trợ truy vết.
-- Bản 2 đã hỗ trợ **YouTube ingest**, giúp giảm thao tác thủ công khi đưa video vào hệ thống.
+- Kết quả gắn với **metadata nguồn video** để hỗ trợ truy vết.
+- Bản 2 đã hỗ trợ **YouTube ingest**, giảm thao tác thủ công khi đưa video vào hệ thống.
 
 ---
 
-## 15. Nếu kết quả chưa hoàn hảo
+## 17. Nếu kết quả chưa hoàn hảo
 
-Có thể giải thích như sau:
+Bạn có thể giải thích như sau:
 
 - Caption là mô tả tự động nên có thể khái quát.
 - Timestamp và matched frame là bằng chứng trực quan quan trọng hơn.
 - Với video khác nhau, sampling frame luôn là trade-off giữa:
   - temporal precision,
   - temporal coverage.
-- Với video cinematic / music video, transcript có thể không đáng tin bằng talk/TED.
-- Mục tiêu hiện tại là prototype semantic search, chưa phải production-grade retrieval cho mọi loại video.
+- Với video cinematic / music video, transcript có thể kém đáng tin hơn talk/TED.
+- Mục tiêu hiện tại là **prototype semantic search**, chưa phải production-grade retrieval cho mọi loại video.
 
 ---
 
-## 16. Lưu ý kỹ thuật trước demo
+## 18. Lưu ý kỹ thuật trước demo
 
 - Lần đầu tải model có thể chậm nếu model chưa cache.
 - Nếu thay config, nhớ restart backend.
 - Nếu đổi metadata catalog, nên re-index video.
-- Không nên đổi model lớn hơn ngay trước demo.
-- Không nên sửa thêm retrieval ngay sát giờ demo nếu hệ thống hiện đã chạy ổn.
-- Với YouTube ingest, nên dùng **URL sạch** dạng `https://www.youtube.com/watch?v=VIDEO_ID`.
+- Không nên đổi model lớn hơn ngay sát giờ demo.
+- Không nên sửa thêm retrieval ngay sát giờ demo nếu hệ thống hiện đã ổn.
+- Với YouTube ingest, nên dùng URL sạch dạng:
+
+```text
+https://www.youtube.com/watch?v=VIDEO_ID
+```
 
 ---
 
-## 17. Checklist trước khi demo
+## 19. Checklist trước khi demo
 
 - [ ] Tạo và activate virtual environment
 - [ ] `pip install -r requirements.txt`
 - [ ] `ffmpeg` và `ffprobe` chạy được trong terminal
 - [ ] `pytest -v`
+- [ ] `python evaluation/run_eval.py`
 - [ ] `uvicorn api.main:app --host 127.0.0.1 --port 8000`
 - [ ] `streamlit run ui/app.py`
 - [ ] kiểm tra `configs/config.yaml`
@@ -422,23 +449,23 @@ Có thể giải thích như sau:
 
 ---
 
-## 18. Luồng demo ngắn gọn nên dùng
+## 20. Luồng demo ngắn gọn nên dùng
 
-1. chạy API  
-2. chạy Streamlit  
-3. ingest video từ YouTube URL  
-4. mở Inventory để xác nhận video đã vào kho  
-5. search bằng 2–3 query đẹp nhất  
+1. chạy API,
+2. chạy Streamlit,
+3. ingest video từ YouTube URL,
+4. mở Inventory để xác nhận video đã vào kho,
+5. search bằng 2–3 query đẹp nhất,
 6. giải thích:
    - matched frame,
    - timestamp,
    - nearby speech context,
    - hybrid retrieval,
-   - source metadata
+   - source metadata.
 
 ---
 
-## 19. Query ưu tiên nếu cần demo nhanh
+## 21. Query ưu tiên nếu cần demo nhanh
 
 ### Video TED / motivation
 - `self motivation`
@@ -452,7 +479,6 @@ Có thể giải thích như sau:
 
 ### Video wildlife
 - `bird flying`
-- `fish swimming`
 - `wildlife diversity`
 
 ### Video cinematic
@@ -462,7 +488,7 @@ Có thể giải thích như sau:
 
 ---
 
-## 20. Tóm tắt
+## 22. Tóm tắt
 
 Bản hiện tại phù hợp nhất với demo theo hướng:
 

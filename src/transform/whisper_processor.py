@@ -78,8 +78,18 @@ class WhisperProcessor:
         if device_type != "cuda":
             return False
 
-        # Chốt an toàn: mọi RuntimeError trên CUDA đều thử lại 1 lần bằng CPU.
-        return isinstance(error, RuntimeError)
+        err = str(error).lower()
+        fallback_markers = [
+            "out of memory",
+            "cuda",
+            "cublas",
+            "cudnn",
+            "device-side assert",
+            "device unavailable",
+            "no kernel image is available",
+            "failed to initialize cuda",
+        ]
+        return any(marker in err for marker in fallback_markers)
 
     def _transcribe_with_fallback(self, audio_path: str) -> Dict[str, Any]:
         try:
