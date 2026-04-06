@@ -822,11 +822,11 @@ class SearchEngine:
                 score_weight=self.clip_search_beta,
             )
 
-            fused_results = self._fuse_results(text_results, clip_results)
-            reranked_results = self._apply_soft_rerank(fused_results, query)
+        fused_results = self._fuse_results(text_results, clip_results)
+        reranked_results = self._apply_soft_rerank(fused_results, query)
 
-            # Vòng 2: Cross-Encoder reranking
-            reranked_results = self.cross_encoder_reranker.rerank(query, reranked_results)
+        # Vòng 2: Cross-Encoder reranking
+        reranked_results = self.cross_encoder_reranker.rerank(query, reranked_results)
 
-            final_results = self._group_results_into_events(reranked_results, top_k=top_k)
-            return final_results
+        final_results = self._group_results_into_events(reranked_results, top_k=top_k)
+        return final_results

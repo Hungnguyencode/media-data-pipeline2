@@ -421,7 +421,11 @@ with st.sidebar:
             st.rerun()
 
 videos = fetch_videos()
-video_options = ["Tất cả video"] + videos
+def shorten_video_name(name: str, max_len: int = 50) -> str:
+    return name if len(name) <= max_len else name[:max_len] + "..."
+
+video_display = ["Tất cả video"] + [shorten_video_name(v) for v in videos]
+video_options = ["Tất cả video"] + videos  # giữ để gửi API
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
     ["Search", "Upload & Process", "Process by Path", "Process by YouTube URL", "Video Inventory"]
@@ -492,86 +496,97 @@ with tab1:
         if not query.strip():
             st.warning("Vui lòng nhập truy vấn.")
         else:
-            try:
-                chosen_video = None
-                if custom_video_name.strip():
-                    chosen_video = custom_video_name.strip()
-                elif selected_video != "Tất cả video":
-                    chosen_video = selected_video
+            with st.spinner("Đang tìm kiếm..."):
+                try:
+                    chosen_video = None
+                    if custom_video_name.strip():
+                        chosen_video = custom_video_name.strip()
+                    elif selected_video != "Tất cả video":
+                        chosen_video = selected_video
 
-                payload = {
-                    "query": query.strip(),
-                    "top_k": top_k,
-                    "content_type": content_type,
-                    "video_name": chosen_video,
-                }
+                    payload = {
+                        "query": query.strip(),
+                        "top_k": top_k,
+                        "content_type": content_type,
+                        "video_name": chosen_video,
+                    }
 
-                response = requests.post(
-                    f"{API_BASE}/search",
-                    json=payload,
-                    timeout=120,
-                )
-                response.raise_for_status()
-                data = response.json()
-                results = data.get("results", [])
+                    response = requests.post(
+                        f"{API_BASE}/search",
+                        json=payload,
+                        timeout=120,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    results = data.get("results", [])
+                except Exception as e:
+                    st.error(f"Search failed: {e}")
+                    results = []
+            if not results:
+                st.info("Không tìm thấy kết quả.")
+            else:
+                st.success(f"Tìm thấy {len(results)} kết quả.")
+                for i, result in enumerate(results, start=1):
+                    meta = result.get("metadata", {}) or {}
+                    st.markdown(f"### Đoạn video phù hợp {i}")
 
-                if not results:
-                    st.info("Không tìm thấy kết quả.")
-                else:
-                    st.success(f"Tìm thấy {len(results)} kết quả.")
-                    for i, result in enumerate(results, start=1):
-                        meta = result.get("metadata", {}) or {}
-                        st.markdown(f"### Đoạn video phù hợp {i}")
+                    display_text = result.get("display_text") or result.get("document", "") or ""
+                    auto_caption = result.get("display_caption") or result.get("document", "") or ""
+                    nearby_speech = result.get("nearby_speech_context") or ""
 
-                        display_text = result.get("display_text") or result.get("document", "") or ""
-                        auto_caption = result.get("display_caption") or result.get("document", "") or ""
-                        nearby_speech = result.get("nearby_speech_context") or ""
+                    st.markdown("**Matched frame description**")
+                    st.write(shorten_text(display_text, max_chars=280))
 
-                        st.markdown("**Matched frame description**")
-                        st.write(shorten_text(display_text, max_chars=280))
+                    if auto_caption:
+                        st.caption(f"Auto-caption: {auto_caption}")
+                    if nearby_speech:
+                        st.caption(f"Nearby speech context: {shorten_text(nearby_speech, max_chars=220)}")
 
-                        if auto_caption:
-                            st.caption(f"Auto-caption: {auto_caption}")
-                        if nearby_speech:
-                            st.caption(f"Nearby speech context: {shorten_text(nearby_speech, max_chars=220)}")
+                    hints = limitation_hints_for_result(result)
+                    for hint in hints:
+                        if "Low-confidence" in hint:
+                            st.warning(hint)
+                        else:
+                            st.caption(hint)
 
-                        hints = limitation_hints_for_result(result)
-                        for hint in hints:
-                            if "Low-confidence" in hint:
-                                st.warning(hint)
-                            else:
-                                st.caption(hint)
+                    timestamp_str = meta.get("timestamp_str") or meta.get("timestamp")
+                    start_time_str = meta.get("start_time_str") or meta.get("start_time")
+                    end_time_str = meta.get("end_time_str") or meta.get("end_time")
 
-                        timestamp_str = meta.get("timestamp_str") or meta.get("timestamp")
-                        start_time_str = meta.get("start_time_str") or meta.get("start_time")
-                        end_time_str = meta.get("end_time_str") or meta.get("end_time")
+                    event_range = result.get("event_time_range") or {}
+                    event_start = event_range.get("start")
+                    event_end = event_range.get("end")
 
-                        event_range = result.get("event_time_range") or {}
-                        event_start = event_range.get("start")
-                        event_end = event_range.get("end")
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.write("Video:", meta.get("video_name", ""))
+                        st.write("Loại:", meta.get("content_type", ""))
+                        st.write("Similarity proxy:", result.get("similarity_score"))
+                        st.write("Distance:", result.get("distance"))
+                    with c2:
+                        st.write("Score type:", result.get("score_type"))
+                        st.write("Mốc frame tốt nhất:", timestamp_str)
+                        st.write("Khoảng event gần đúng:", f"{event_start} -> {event_end}")
+                        st.write("Khoảng thời gian tài liệu:", f"{start_time_str} -> {end_time_str}")
+                    with c3:
+                        st.write("Modality:", meta.get("source_modality", ""))
+                        st.write("Model:", meta.get("model_name", ""))
+                        st.write("Language:", meta.get("document_language", ""))
+                        st.write("Nearby matched frames grouped:", result.get("group_size", 1))
 
-                        c1, c2, c3 = st.columns(3)
-                        with c1:
-                            st.write("Video:", meta.get("video_name", ""))
-                            st.write("Loại:", meta.get("content_type", ""))
-                            st.write("Similarity proxy:", result.get("similarity_score"))
-                            st.write("Distance:", result.get("distance"))
-                        with c2:
-                            st.write("Score type:", result.get("score_type"))
-                            st.write("Mốc frame tốt nhất:", timestamp_str)
-                            st.write("Khoảng event gần đúng:", f"{event_start} -> {event_end}")
-                            st.write("Khoảng thời gian tài liệu:", f"{start_time_str} -> {end_time_str}")
-                        with c3:
-                            st.write("Modality:", meta.get("source_modality", ""))
-                            st.write("Model:", meta.get("model_name", ""))
-                            st.write("Language:", meta.get("document_language", ""))
-                            st.write("Nearby matched frames grouped:", result.get("group_size", 1))
+                    st.markdown("**Nguồn video**")
+                    show_source_info_block(meta)
+                    result_video_name = meta.get("video_name")
+                    if result_video_name:
+                        timestamp = meta.get("timestamp") or 0
+                        video_path = get_video_file_path(result_video_name)
+                        if video_path:
+                            with open(video_path, "rb") as f:
+                                st.video(f.read(), start_time=int(timestamp))
+                        else:
+                            st.caption(f"⚠️ Không tìm thấy file video local: {result_video_name}")
 
-                        st.markdown("**Nguồn video**")
-                        show_source_info_block(meta)
-                        st.markdown("---")
-            except Exception as e:
-                st.error(f"Search failed: {e}")
+                    st.markdown("---")
 
 with tab2:
     st.subheader("Upload & Process")

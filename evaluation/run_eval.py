@@ -147,6 +147,8 @@ def main():
             }
         )
 
+python run_eval.py --reranker=off   
+python run_eval.py --reranker=on    
 
 if __name__ == "__main__":
     main()
