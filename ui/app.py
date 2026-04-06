@@ -451,7 +451,7 @@ with tab1:
 
     query = st.text_input("Nhập câu truy vấn", key="query_input")
     top_k = st.slider("Top K", min_value=1, max_value=20, value=5)
-
+    use_reranker = st.checkbox("Dùng Cross-Encoder Reranking (chậm hơn, chính xác hơn)", value=True)
     _, preset_label = derive_search_preset_defaults(preset_name)
 
     col_a, col_b = st.columns(2)

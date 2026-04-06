@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from src.retrieval.cross_encoder_reranker import CrossEncoderReranker
 import logging
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -97,6 +97,7 @@ class SearchEngine:
         self.audio_only_content_types = {"transcription", "segment_chunk"}
         self.visual_content_types = {"caption"}
         self.multimodal_content_types = {"multimodal"}
+        self.cross_encoder_reranker = CrossEncoderReranker(self.config)
 
     def _distance_to_similarity_proxy(self, distance: Optional[float]) -> Optional[float]:
         if distance is None:
@@ -821,9 +822,11 @@ class SearchEngine:
                 score_weight=self.clip_search_beta,
             )
 
-        fused_results = self._fuse_results(text_results, clip_results)
-        reranked_results = self._apply_soft_rerank(fused_results, query)
-        MIN_FUSION_SCORE = 0.3 
-        fused_results = [res for res in fused_results if res.get("fusion_score", 0.0) >= MIN_FUSION_SCORE]
-        final_results = self._group_results_into_events(reranked_results, top_k=top_k)
-        return final_results
+            fused_results = self._fuse_results(text_results, clip_results)
+            reranked_results = self._apply_soft_rerank(fused_results, query)
+
+            # Vòng 2: Cross-Encoder reranking
+            reranked_results = self.cross_encoder_reranker.rerank(query, reranked_results)
+
+            final_results = self._group_results_into_events(reranked_results, top_k=top_k)
+            return final_results
