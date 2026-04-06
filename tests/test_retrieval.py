@@ -156,6 +156,7 @@ def test_search_returns_results_with_score_type():
         "hybrid_fusion",
         "text_similarity",
         "clip_text_image_similarity",
+        "hybrid_fusion+rerank+cross_encoder",
     }
     assert results[0]["similarity_score"] is not None
     assert "display_text" in results[0]
