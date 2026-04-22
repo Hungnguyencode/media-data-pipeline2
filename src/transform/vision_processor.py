@@ -478,28 +478,19 @@ class VisionProcessor:
 
         if has_pour_action:
             strong_pour_signal = has_person and has_container and has_pourable_object
-            medium_pour_signal = has_person and has_container
 
             if strong_pour_signal:
                 return caption
 
-            if not medium_pour_signal:
-                if "egg" in tokens or "eggs" in tokens:
-                    return "A bowl with eggs in it"
-                if "spoon" in tokens:
-                    return "A bowl with a spoon"
-                if "bowl" in tokens:
-                    return "A bowl on a table"
-                if "cup" in tokens or "glass" in tokens:
-                    return "A container on a table"
+            if "egg" in tokens or "eggs" in tokens:
+                return "A bowl with eggs in it"
+            if "spoon" in tokens:
+                return "A bowl with a spoon"
+            if "bowl" in tokens:
+                return "A bowl on a table"
+            if "cup" in tokens or "glass" in tokens:
                 return "A container on a table"
-
-            if has_person and has_container and not has_pourable_object:
-                if "bowl" in tokens:
-                    return "A person near a bowl"
-                if "spoon" in tokens:
-                    return "A person holding a spoon"
-                return "A person near a container"
+            return "A container on a table"
 
         if has_break_or_peel and has_openable_object:
             return caption

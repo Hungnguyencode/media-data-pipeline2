@@ -1,0 +1,811 @@
+{
+  "generated_at": "2026-04-23T00:07:19",
+  "benchmark_file": "C:\\Users\\Admin\\media-data-pipeline2\\evaluation\\benchmark_cases.json",
+  "output_file": "C:\\Users\\Admin\\media-data-pipeline2\\evaluation\\latest_report.json",
+  "reranker_enabled": false,
+  "indexed_videos_available": 3,
+  "valid_cases": 9,
+  "skipped_cases_count": 0,
+  "hits": 3,
+  "hit_rate": 0.3333,
+  "type_breakdown": {
+    "action": {
+      "hits": 2,
+      "total": 2,
+      "hit_rate": 1.0
+    },
+    "hallucination_negative": {
+      "hits": 0,
+      "total": 6,
+      "hit_rate": 0.0
+    },
+    "visual": {
+      "hits": 1,
+      "total": 1,
+      "hit_rate": 1.0
+    }
+  },
+  "skipped_cases": [],
+  "detailed_reports": [
+    {
+      "video_name": "egg.mp4",
+      "query": "crack egg",
+      "query_type": "action",
+      "search_mode": "action",
+      "content_type": "caption",
+      "hit": true,
+      "matched_rank": 1,
+      "top_k": 3,
+      "result_count": 2,
+      "top_result_preview": {
+        "fusion_score": 0.455131,
+        "query_type": "action",
+        "search_mode": "action",
+        "matched_signals": [
+          "action_match",
+          "object_match",
+          "semantic_bonus",
+          "metadata_boost",
+          "style_boost"
+        ],
+        "ranking_explanation": "matched action group(s): break_open; matched object(s): egg; semantic bonus +0.167; metadata boost for style='action' and content_type='caption'; style-aware boost +0.020",
+        "display_text": "A person is peeling an egg in a bowl"
+      },
+      "all_mode_reports": [
+        {
+          "video_name": "egg.mp4",
+          "query": "crack egg",
+          "query_type": "action",
+          "search_mode": "action",
+          "content_type": "caption",
+          "hit": true,
+          "matched_rank": 1,
+          "top_k": 3,
+          "result_count": 2,
+          "top_result_preview": {
+            "fusion_score": 0.455131,
+            "query_type": "action",
+            "search_mode": "action",
+            "matched_signals": [
+              "action_match",
+              "object_match",
+              "semantic_bonus",
+              "metadata_boost",
+              "style_boost"
+            ],
+            "ranking_explanation": "matched action group(s): break_open; matched object(s): egg; semantic bonus +0.167; metadata boost for style='action' and content_type='caption'; style-aware boost +0.020",
+            "display_text": "A person is peeling an egg in a bowl"
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "crack egg",
+          "query_type": "action",
+          "search_mode": "action",
+          "content_type": "multimodal",
+          "hit": true,
+          "matched_rank": 1,
+          "top_k": 3,
+          "result_count": 1,
+          "top_result_preview": {
+            "fusion_score": 0.455131,
+            "query_type": "action",
+            "search_mode": "action",
+            "matched_signals": [
+              "action_match",
+              "object_match",
+              "semantic_bonus",
+              "metadata_boost",
+              "style_boost"
+            ],
+            "ranking_explanation": "matched action group(s): break_open; matched object(s): egg; semantic bonus +0.167; metadata boost for style='action' and content_type='caption'; style-aware boost +0.020",
+            "display_text": "A person is peeling an egg in a bowl"
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "crack egg",
+          "query_type": "action",
+          "search_mode": "action",
+          "content_type": "all",
+          "hit": true,
+          "matched_rank": 1,
+          "top_k": 3,
+          "result_count": 2,
+          "top_result_preview": {
+            "fusion_score": 0.455131,
+            "query_type": "action",
+            "search_mode": "action",
+            "matched_signals": [
+              "action_match",
+              "object_match",
+              "semantic_bonus",
+              "metadata_boost",
+              "style_boost"
+            ],
+            "ranking_explanation": "matched action group(s): break_open; matched object(s): egg; semantic bonus +0.167; metadata boost for style='action' and content_type='caption'; style-aware boost +0.020",
+            "display_text": "A person is peeling an egg in a bowl"
+          }
+        }
+      ]
+    },
+    {
+      "video_name": "egg.mp4",
+      "query": "separate egg yolk",
+      "query_type": "action",
+      "search_mode": "action",
+      "content_type": "multimodal",
+      "hit": true,
+      "matched_rank": 2,
+      "top_k": 5,
+      "result_count": 5,
+      "top_result_preview": {
+        "fusion_score": 0.357503,
+        "query_type": "action",
+        "search_mode": "action",
+        "matched_signals": [
+          "object_match",
+          "semantic_bonus",
+          "metadata_boost",
+          "style_boost"
+        ],
+        "ranking_explanation": "matched object(s): egg; semantic bonus +0.037; metadata boost for style='action' and content_type='caption'; style-aware boost +0.020",
+        "display_text": "A person is putting an egg in a bowl"
+      },
+      "all_mode_reports": [
+        {
+          "video_name": "egg.mp4",
+          "query": "separate egg yolk",
+          "query_type": "action",
+          "search_mode": "action",
+          "content_type": "caption",
+          "hit": true,
+          "matched_rank": 5,
+          "top_k": 5,
+          "result_count": 5,
+          "top_result_preview": {
+            "fusion_score": 0.582142,
+            "query_type": "action",
+            "search_mode": "action",
+            "matched_signals": [
+              "object_match",
+              "semantic_bonus",
+              "metadata_boost",
+              "style_boost"
+            ],
+            "ranking_explanation": "matched object(s): egg; semantic bonus +0.037; metadata boost for style='action' and content_type='caption'; style-aware boost +0.020",
+            "display_text": "A person is putting an egg in a bowl"
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "separate egg yolk",
+          "query_type": "action",
+          "search_mode": "action",
+          "content_type": "multimodal",
+          "hit": true,
+          "matched_rank": 2,
+          "top_k": 5,
+          "result_count": 5,
+          "top_result_preview": {
+            "fusion_score": 0.357503,
+            "query_type": "action",
+            "search_mode": "action",
+            "matched_signals": [
+              "object_match",
+              "semantic_bonus",
+              "metadata_boost",
+              "style_boost"
+            ],
+            "ranking_explanation": "matched object(s): egg; semantic bonus +0.037; metadata boost for style='action' and content_type='caption'; style-aware boost +0.020",
+            "display_text": "A person is putting an egg in a bowl"
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "separate egg yolk",
+          "query_type": "action",
+          "search_mode": "action",
+          "content_type": "all",
+          "hit": true,
+          "matched_rank": 4,
+          "top_k": 5,
+          "result_count": 5,
+          "top_result_preview": {
+            "fusion_score": 0.510163,
+            "query_type": "action",
+            "search_mode": "action",
+            "matched_signals": [
+              "metadata_boost",
+              "semantic_penalty"
+            ],
+            "ranking_explanation": "metadata boost for style='action' and content_type='caption'; semantic penalty -0.008",
+            "display_text": "A glass bowl filled with eggs and a metal spoon"
+          }
+        }
+      ]
+    },
+    {
+      "video_name": "egg.mp4",
+      "query": "egg in bowl",
+      "query_type": "visual",
+      "search_mode": "visual",
+      "content_type": "caption",
+      "hit": true,
+      "matched_rank": 2,
+      "top_k": 5,
+      "result_count": 5,
+      "top_result_preview": {
+        "fusion_score": 0.575186,
+        "query_type": "visual",
+        "search_mode": "visual",
+        "matched_signals": [
+          "object_match",
+          "semantic_bonus"
+        ],
+        "ranking_explanation": "matched object(s): bowl, egg; semantic bonus +0.045",
+        "display_text": "A bowl with an egg in it"
+      },
+      "all_mode_reports": [
+        {
+          "video_name": "egg.mp4",
+          "query": "egg in bowl",
+          "query_type": "visual",
+          "search_mode": "visual",
+          "content_type": "caption",
+          "hit": true,
+          "matched_rank": 2,
+          "top_k": 5,
+          "result_count": 5,
+          "top_result_preview": {
+            "fusion_score": 0.575186,
+            "query_type": "visual",
+            "search_mode": "visual",
+            "matched_signals": [
+              "object_match",
+              "semantic_bonus"
+            ],
+            "ranking_explanation": "matched object(s): bowl, egg; semantic bonus +0.045",
+            "display_text": "A bowl with an egg in it"
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "egg in bowl",
+          "query_type": "visual",
+          "search_mode": "visual",
+          "content_type": "multimodal",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "egg in bowl",
+          "query_type": "visual",
+          "search_mode": "visual",
+          "content_type": "all",
+          "hit": true,
+          "matched_rank": 2,
+          "top_k": 5,
+          "result_count": 5,
+          "top_result_preview": {
+            "fusion_score": 0.575186,
+            "query_type": "visual",
+            "search_mode": "visual",
+            "matched_signals": [
+              "object_match",
+              "semantic_bonus"
+            ],
+            "ranking_explanation": "matched object(s): bowl, egg; semantic bonus +0.045",
+            "display_text": "A bowl with an egg in it"
+          }
+        }
+      ]
+    },
+    {
+      "video_name": "egg.mp4",
+      "query": "pouring water",
+      "query_type": "hallucination_negative",
+      "search_mode": "action",
+      "content_type": "all",
+      "hit": false,
+      "matched_rank": null,
+      "top_k": 5,
+      "result_count": 1,
+      "top_result_preview": {
+        "fusion_score": 0.305899,
+        "query_type": "action",
+        "search_mode": "action",
+        "matched_signals": [
+          "action_match",
+          "metadata_boost",
+          "semantic_penalty",
+          "style_penalty"
+        ],
+        "ranking_explanation": "matched action group(s): pour_transfer; metadata boost for style='action' and content_type='caption'; semantic penalty -0.178; style-aware penalty -0.020",
+        "display_text": "A person is pouring a liquid into a glass"
+      },
+      "all_mode_reports": [
+        {
+          "video_name": "egg.mp4",
+          "query": "pouring water",
+          "query_type": "hallucination_negative",
+          "search_mode": "action",
+          "content_type": "caption",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 1,
+          "top_result_preview": {
+            "fusion_score": 0.305899,
+            "query_type": "action",
+            "search_mode": "action",
+            "matched_signals": [
+              "action_match",
+              "metadata_boost",
+              "semantic_penalty",
+              "style_penalty"
+            ],
+            "ranking_explanation": "matched action group(s): pour_transfer; metadata boost for style='action' and content_type='caption'; semantic penalty -0.178; style-aware penalty -0.020",
+            "display_text": "A person is pouring a liquid into a glass"
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "pouring water",
+          "query_type": "hallucination_negative",
+          "search_mode": "action",
+          "content_type": "multimodal",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "pouring water",
+          "query_type": "hallucination_negative",
+          "search_mode": "action",
+          "content_type": "all",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 1,
+          "top_result_preview": {
+            "fusion_score": 0.305899,
+            "query_type": "action",
+            "search_mode": "action",
+            "matched_signals": [
+              "action_match",
+              "metadata_boost",
+              "semantic_penalty",
+              "style_penalty"
+            ],
+            "ranking_explanation": "matched action group(s): pour_transfer; metadata boost for style='action' and content_type='caption'; semantic penalty -0.178; style-aware penalty -0.020",
+            "display_text": "A person is pouring a liquid into a glass"
+          }
+        }
+      ]
+    },
+    {
+      "video_name": "egg.mp4",
+      "query": "pour milk",
+      "query_type": "hallucination_negative",
+      "search_mode": "action",
+      "content_type": "all",
+      "hit": false,
+      "matched_rank": null,
+      "top_k": 5,
+      "result_count": 2,
+      "top_result_preview": {
+        "fusion_score": 0.364899,
+        "query_type": "action",
+        "search_mode": "action",
+        "matched_signals": [
+          "object_match",
+          "metadata_boost",
+          "semantic_penalty"
+        ],
+        "ranking_explanation": "matched object(s): milk; metadata boost for style='action' and content_type='caption'; semantic penalty -0.148",
+        "display_text": "A glass bowl filled with milk and a spoon"
+      },
+      "all_mode_reports": [
+        {
+          "video_name": "egg.mp4",
+          "query": "pour milk",
+          "query_type": "hallucination_negative",
+          "search_mode": "action",
+          "content_type": "caption",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 2,
+          "top_result_preview": {
+            "fusion_score": 0.364899,
+            "query_type": "action",
+            "search_mode": "action",
+            "matched_signals": [
+              "object_match",
+              "metadata_boost",
+              "semantic_penalty"
+            ],
+            "ranking_explanation": "matched object(s): milk; metadata boost for style='action' and content_type='caption'; semantic penalty -0.148",
+            "display_text": "A glass bowl filled with milk and a spoon"
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "pour milk",
+          "query_type": "hallucination_negative",
+          "search_mode": "action",
+          "content_type": "multimodal",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "pour milk",
+          "query_type": "hallucination_negative",
+          "search_mode": "action",
+          "content_type": "all",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 2,
+          "top_result_preview": {
+            "fusion_score": 0.364899,
+            "query_type": "action",
+            "search_mode": "action",
+            "matched_signals": [
+              "object_match",
+              "metadata_boost",
+              "semantic_penalty"
+            ],
+            "ranking_explanation": "matched object(s): milk; metadata boost for style='action' and content_type='caption'; semantic penalty -0.148",
+            "display_text": "A glass bowl filled with milk and a spoon"
+          }
+        }
+      ]
+    },
+    {
+      "video_name": "egg.mp4",
+      "query": "cut onion",
+      "query_type": "hallucination_negative",
+      "search_mode": "action",
+      "content_type": "all",
+      "hit": false,
+      "matched_rank": null,
+      "top_k": 5,
+      "result_count": 0,
+      "top_result_preview": {
+        "fusion_score": null,
+        "query_type": null,
+        "search_mode": null,
+        "matched_signals": [],
+        "ranking_explanation": "",
+        "display_text": ""
+      },
+      "all_mode_reports": [
+        {
+          "video_name": "egg.mp4",
+          "query": "cut onion",
+          "query_type": "hallucination_negative",
+          "search_mode": "action",
+          "content_type": "caption",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "cut onion",
+          "query_type": "hallucination_negative",
+          "search_mode": "action",
+          "content_type": "multimodal",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "cut onion",
+          "query_type": "hallucination_negative",
+          "search_mode": "action",
+          "content_type": "all",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        }
+      ]
+    },
+    {
+      "video_name": "egg.mp4",
+      "query": "beach scene",
+      "query_type": "hallucination_negative",
+      "search_mode": "visual",
+      "content_type": "all",
+      "hit": false,
+      "matched_rank": null,
+      "top_k": 5,
+      "result_count": 0,
+      "top_result_preview": {
+        "fusion_score": null,
+        "query_type": null,
+        "search_mode": null,
+        "matched_signals": [],
+        "ranking_explanation": "",
+        "display_text": ""
+      },
+      "all_mode_reports": [
+        {
+          "video_name": "egg.mp4",
+          "query": "beach scene",
+          "query_type": "hallucination_negative",
+          "search_mode": "visual",
+          "content_type": "caption",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "beach scene",
+          "query_type": "hallucination_negative",
+          "search_mode": "visual",
+          "content_type": "multimodal",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "beach scene",
+          "query_type": "hallucination_negative",
+          "search_mode": "visual",
+          "content_type": "all",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        }
+      ]
+    },
+    {
+      "video_name": "egg.mp4",
+      "query": "bird flying",
+      "query_type": "hallucination_negative",
+      "search_mode": "visual",
+      "content_type": "all",
+      "hit": false,
+      "matched_rank": null,
+      "top_k": 5,
+      "result_count": 0,
+      "top_result_preview": {
+        "fusion_score": null,
+        "query_type": null,
+        "search_mode": null,
+        "matched_signals": [],
+        "ranking_explanation": "",
+        "display_text": ""
+      },
+      "all_mode_reports": [
+        {
+          "video_name": "egg.mp4",
+          "query": "bird flying",
+          "query_type": "hallucination_negative",
+          "search_mode": "visual",
+          "content_type": "caption",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "bird flying",
+          "query_type": "hallucination_negative",
+          "search_mode": "visual",
+          "content_type": "multimodal",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "bird flying",
+          "query_type": "hallucination_negative",
+          "search_mode": "visual",
+          "content_type": "all",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        }
+      ]
+    },
+    {
+      "video_name": "egg.mp4",
+      "query": "forest road",
+      "query_type": "hallucination_negative",
+      "search_mode": "visual",
+      "content_type": "all",
+      "hit": false,
+      "matched_rank": null,
+      "top_k": 5,
+      "result_count": 0,
+      "top_result_preview": {
+        "fusion_score": null,
+        "query_type": null,
+        "search_mode": null,
+        "matched_signals": [],
+        "ranking_explanation": "",
+        "display_text": ""
+      },
+      "all_mode_reports": [
+        {
+          "video_name": "egg.mp4",
+          "query": "forest road",
+          "query_type": "hallucination_negative",
+          "search_mode": "visual",
+          "content_type": "caption",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "forest road",
+          "query_type": "hallucination_negative",
+          "search_mode": "visual",
+          "content_type": "multimodal",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        },
+        {
+          "video_name": "egg.mp4",
+          "query": "forest road",
+          "query_type": "hallucination_negative",
+          "search_mode": "visual",
+          "content_type": "all",
+          "hit": false,
+          "matched_rank": null,
+          "top_k": 5,
+          "result_count": 0,
+          "top_result_preview": {
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
+          }
+        }
+      ]
+    }
+  ]
+}

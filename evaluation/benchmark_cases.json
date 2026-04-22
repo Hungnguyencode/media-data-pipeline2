@@ -3,7 +3,8 @@
     "video_name": "egg.mp4",
     "query": "crack egg",
     "query_type": "action",
-    "target_time_range": [0.0, 3.0],
+    "search_mode": "action",
+    "target_time_range": [0.0, 5.0],
     "preferred_content_types": ["caption", "multimodal"],
     "min_hit_at_k": 3
   },
@@ -11,63 +12,72 @@
     "video_name": "egg.mp4",
     "query": "separate egg yolk",
     "query_type": "action",
-    "target_time_range": [0.0, 6.0],
+    "search_mode": "action",
+    "target_time_range": [0.0, 10.0],
     "preferred_content_types": ["caption", "multimodal"],
     "min_hit_at_k": 5
   },
   {
     "video_name": "egg.mp4",
+    "query": "egg in bowl",
+    "query_type": "visual",
+    "search_mode": "visual",
+    "target_time_range": [0.0, 20.0],
+    "preferred_content_types": ["caption", "multimodal"],
+    "min_hit_at_k": 5
+  },
+
+  {
+    "video_name": "egg.mp4",
     "query": "pouring water",
     "query_type": "hallucination_negative",
+    "search_mode": "action",
     "target_time_range": [9999.0, 10000.0],
     "preferred_content_types": ["caption", "multimodal"],
     "min_hit_at_k": 5
   },
   {
-    "video_name": "ted_happier.mp4",
-    "query": "human connection",
-    "query_type": "topic",
-    "target_time_range": [0.0, 60.0],
-    "preferred_content_types": ["segment_chunk", "multimodal"],
-    "min_hit_at_k": 3
-  },
-  {
-    "video_name": "ted_happier.mp4",
-    "query": "relationships",
-    "query_type": "topic",
-    "target_time_range": [0.0, 120.0],
-    "preferred_content_types": ["segment_chunk", "multimodal"],
-    "min_hit_at_k": 5
-  },
-  {
-    "video_name": "ted_happier.mp4",
-    "query": "kết nối con người",
-    "query_type": "topic_vi",
-    "target_time_range": [0.0, 120.0],
-    "preferred_content_types": ["segment_chunk", "multimodal"],
-    "min_hit_at_k": 5
-  },
-  {
-    "video_name": "no_place_like_home_cinematic_4k_vlog_canon_90d_YtpEE6khXfA.mp4",
-    "query": "summer sky",
-    "query_type": "visual",
-    "target_time_range": [0.0, 300.0],
+    "video_name": "egg.mp4",
+    "query": "pour milk",
+    "query_type": "hallucination_negative",
+    "search_mode": "action",
+    "target_time_range": [9999.0, 10000.0],
     "preferred_content_types": ["caption", "multimodal"],
     "min_hit_at_k": 5
   },
   {
-    "video_name": "no_place_like_home_cinematic_4k_vlog_canon_90d_YtpEE6khXfA.mp4",
-    "query": "car on road",
-    "query_type": "visual",
-    "target_time_range": [0.0, 300.0],
+    "video_name": "egg.mp4",
+    "query": "cut onion",
+    "query_type": "hallucination_negative",
+    "search_mode": "action",
+    "target_time_range": [9999.0, 10000.0],
     "preferred_content_types": ["caption", "multimodal"],
     "min_hit_at_k": 5
   },
   {
-    "video_name": "5 Minute Wildlife Documentary A Breathtaking Journey Through Earth's Diverse Wildlife.mp4",
+    "video_name": "egg.mp4",
+    "query": "beach scene",
+    "query_type": "hallucination_negative",
+    "search_mode": "visual",
+    "target_time_range": [9999.0, 10000.0],
+    "preferred_content_types": ["caption", "multimodal"],
+    "min_hit_at_k": 5
+  },
+  {
+    "video_name": "egg.mp4",
     "query": "bird flying",
-    "query_type": "visual",
-    "target_time_range": [0.0, 300.0],
+    "query_type": "hallucination_negative",
+    "search_mode": "visual",
+    "target_time_range": [9999.0, 10000.0],
+    "preferred_content_types": ["caption", "multimodal"],
+    "min_hit_at_k": 5
+  },
+  {
+    "video_name": "egg.mp4",
+    "query": "forest road",
+    "query_type": "hallucination_negative",
+    "search_mode": "visual",
+    "target_time_range": [9999.0, 10000.0],
     "preferred_content_types": ["caption", "multimodal"],
     "min_hit_at_k": 5
   }

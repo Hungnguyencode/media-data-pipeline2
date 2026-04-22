@@ -369,6 +369,11 @@ def setup_logging() -> None:
             format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         )
 
+    # Chặn log telemetry rác của ChromaDB
+    logging.getLogger("chromadb.telemetry").disabled = True
+    logging.getLogger("chromadb.telemetry.product.posthog").disabled = True
+    logging.getLogger("chromadb.telemetry.product.events").disabled = True
+
 
 def release_memory() -> None:
     gc.collect()
@@ -779,3 +784,82 @@ def normalize_source_metadata_for_pipeline(
     ).strip()
 
     return normalized
+
+
+def looks_like_pytest_temp_path(path_value: str) -> bool:
+    normalized = str(path_value or "").replace("\\", "/").lower()
+    return "pytest-of-" in normalized or "/temp/pytest-" in normalized
+
+
+def sanitize_video_catalog(
+    *,
+    remove_stale_test_entries: bool = True,
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    cfg = config or get_config()
+    catalog = load_video_catalog(force_reload=True, config=cfg)
+    raw_dir = get_data_path(cfg["paths"].get("raw_dir", "data/raw"))
+
+    cleaned: List[Dict[str, Any]] = []
+    removed: List[Dict[str, Any]] = []
+
+    for item in catalog:
+        if not isinstance(item, dict):
+            continue
+
+        video_name = str(item.get("video_name", "")).strip()
+        local_video_path = str(item.get("local_video_path", "")).strip()
+
+        should_remove = False
+
+        if remove_stale_test_entries and local_video_path and looks_like_pytest_temp_path(local_video_path):
+            fallback = raw_dir / video_name
+            if not fallback.exists():
+                should_remove = True
+
+        if should_remove:
+            removed.append(
+                {
+                    "video_name": video_name,
+                    "local_video_path": local_video_path,
+                    "reason": "stale_pytest_temp_path",
+                }
+            )
+            continue
+
+        cleaned.append(item)
+
+    save_video_catalog(cleaned, config=cfg)
+
+    return {
+        "removed_count": len(removed),
+        "removed": removed,
+        "remaining_count": len(cleaned),
+    }
+
+
+def resolve_video_path_from_catalog_entry(
+    video_name: str,
+    entry: Dict[str, Any],
+    config: Optional[Dict[str, Any]] = None,
+) -> Path:
+    cfg = config or get_config()
+    local_video_path = str(entry.get("local_video_path", "")).strip()
+
+    if local_video_path:
+        rel_candidate = get_data_path(local_video_path)
+        if rel_candidate.exists():
+            return rel_candidate
+
+        abs_candidate = Path(local_video_path)
+        if abs_candidate.is_absolute() and abs_candidate.exists():
+            return abs_candidate
+
+    fallback = get_data_path(cfg["paths"].get("raw_dir", "data/raw")) / video_name
+    if fallback.exists():
+        return fallback
+
+    raise FileNotFoundError(
+        f"Could not resolve video path for '{video_name}'. "
+        f"Catalog path='{local_video_path}', fallback='{fallback}'"
+    )

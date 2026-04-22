@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import shutil
 from pathlib import Path
@@ -15,6 +16,11 @@ from src.utils import (
     get_config,
     get_data_path,
     get_video_catalog_entry,
+    load_video_catalog,
+    resolve_video_path_from_catalog_entry,
+    sanitize_filename_component,
+    sanitize_video_catalog,
+    save_video_catalog,
     setup_logging,
 )
 
@@ -24,6 +30,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Media Semantic Search API")
 
 ALLOWED_CONTENT_TYPES = {"transcription", "segment_chunk", "caption", "multimodal"}
+ALLOWED_SEARCH_MODES = {"auto", "action", "visual", "topic", "audio"}
 ALLOWED_VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 ALLOWED_VIDEO_CONTENT_TYPES = {
     "video/mp4",
@@ -57,6 +64,7 @@ class SearchRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=50)
     content_type: Optional[str] = None
     video_name: Optional[str] = None
+    search_mode: str = Field(default="auto")
 
 
 class ProcessVideoRequest(BaseModel):
@@ -98,7 +106,55 @@ def _format_search_result(result: dict) -> dict:
         "distance": result.get("distance"),
         "similarity_score": similarity_score,
         "score_type": result.get("score_type", "legacy_or_unspecified"),
+        "fusion_score": result.get("fusion_score"),
+        "query_type": result.get("query_type"),
+        "search_mode": result.get("search_mode"),
+        "matched_signals": result.get("matched_signals", []),
+        "ranking_explanation": result.get("ranking_explanation", ""),
+        "score_breakdown": result.get("score_breakdown", {}),
     }
+
+
+def _looks_like_pytest_temp_path(path_value: str) -> bool:
+    normalized = str(path_value or "").replace("\\", "/").lower()
+    return "pytest-of-" in normalized or "/temp/pytest-" in normalized
+
+
+def _resolve_video_path_from_catalog_or_raw(video_name: str, entry: dict) -> Path:
+    local_video_path = str(entry.get("local_video_path", "")).strip()
+
+    if local_video_path:
+        candidate = get_data_path(local_video_path)
+        if candidate.exists():
+            return candidate
+
+        raw_path_obj = Path(local_video_path)
+        if raw_path_obj.is_absolute() and raw_path_obj.exists():
+            return raw_path_obj
+
+    fallback = get_data_path(get_config()["paths"].get("raw_dir", "data/raw")) / video_name
+    if fallback.exists():
+        return fallback
+
+    raise FileNotFoundError(
+        f"Could not resolve video path for '{video_name}'. "
+        f"Catalog path='{local_video_path}', raw fallback='{fallback}'"
+    )
+
+
+def _make_non_overwriting_upload_path(upload_dir: Path, original_name: str, file_bytes: bytes) -> Path:
+    safe_name = Path(original_name).name
+    stem = Path(safe_name).stem
+    suffix = Path(safe_name).suffix.lower()
+
+    candidate = upload_dir / safe_name
+    if not candidate.exists():
+        return candidate
+
+    digest = hashlib.md5(file_bytes).hexdigest()[:8]
+    sanitized_stem = sanitize_filename_component(stem, fallback="uploaded_video")
+    new_name = f"{sanitized_stem}_{digest}{suffix}"
+    return upload_dir / new_name
 
 
 @app.get("/")
@@ -115,6 +171,7 @@ def root():
             "/videos/{video_name}",
             "/videos/{video_name}/cleanup",
             "/videos/{video_name}/reindex",
+            "/catalog/sanitize",
             "/health",
             "/stats",
         ],
@@ -123,7 +180,36 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    dependency_status = {
+        "ffmpeg": shutil.which("ffmpeg") is not None,
+        "ffprobe": shutil.which("ffprobe") is not None,
+    }
+
+    config = get_config()
+    paths_cfg = config.get("paths", {})
+
+    path_status = {
+        "raw_dir_exists": get_data_path(paths_cfg.get("raw_dir", "data/raw")).exists(),
+        "vector_db_dir_exists": get_data_path(paths_cfg.get("vector_db_dir", "data/vector_db")).exists(),
+        "video_catalog_exists": get_data_path(paths_cfg.get("video_catalog_path", "data/video_catalog.json")).exists(),
+    }
+
+    try:
+        pipeline = get_pipeline()
+        stats = pipeline.vector_indexer.get_stats()
+        vector_db_ok = "error" not in stats
+    except Exception as e:
+        stats = {"error": str(e)}
+        vector_db_ok = False
+
+    ok = all(dependency_status.values()) and all(path_status.values()) and vector_db_ok
+
+    return {
+        "status": "ok" if ok else "degraded",
+        "dependencies": dependency_status,
+        "paths": path_status,
+        "vector_db": stats,
+    }
 
 
 @app.get("/stats")
@@ -233,13 +319,14 @@ def reindex_video(video_name: str, request: ReindexVideoRequest):
         if not entry:
             raise HTTPException(status_code=404, detail=f"Video not found in catalog: {safe_video_name}")
 
-        video_path = str(entry.get("local_video_path", "")).strip()
-        if not video_path:
-            raise HTTPException(status_code=400, detail=f"Catalog entry has no local_video_path: {safe_video_name}")
-
-        resolved_path = get_data_path(video_path)
-        if not resolved_path.exists():
-            raise HTTPException(status_code=404, detail=f"Local video file not found: {resolved_path}")
+        try:
+            resolved_path = resolve_video_path_from_catalog_entry(
+                safe_video_name,
+                entry,
+                config=get_config(),
+            )
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
 
         source_platform = str(entry.get("source_platform", "")).strip() or "local"
         source_url = str(entry.get("source_url", "")).strip()
@@ -277,6 +364,53 @@ def reindex_video(video_name: str, request: ReindexVideoRequest):
         raise HTTPException(status_code=500, detail=f"Could not re-index video: {e}") from e
 
 
+@app.post("/catalog/sanitize")
+def sanitize_catalog():
+    try:
+        config = get_config()
+        raw_dir = get_data_path(config["paths"].get("raw_dir", "data/raw"))
+        catalog = load_video_catalog(force_reload=True, config=config)
+
+        cleaned = []
+        removed = []
+
+        for item in catalog:
+            if not isinstance(item, dict):
+                continue
+
+            video_name = str(item.get("video_name", "")).strip()
+            local_video_path = str(item.get("local_video_path", "")).strip()
+
+            should_remove = False
+            if local_video_path and _looks_like_pytest_temp_path(local_video_path):
+                fallback = raw_dir / video_name
+                if not fallback.exists():
+                    should_remove = True
+
+            if should_remove:
+                removed.append(
+                    {
+                        "video_name": video_name,
+                        "local_video_path": local_video_path,
+                        "reason": "stale_pytest_temp_path",
+                    }
+                )
+                continue
+
+            cleaned.append(item)
+
+        save_video_catalog(cleaned, config=config)
+
+        return {
+            "message": "Catalog sanitize completed",
+            "removed_count": len(removed),
+            "removed": removed,
+            "remaining_count": len(cleaned),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not sanitize catalog: {e}") from e
+
+
 @app.post("/search")
 def search(request: SearchRequest):
     query = request.query.strip()
@@ -287,6 +421,13 @@ def search(request: SearchRequest):
     if request.content_type and request.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=400, detail="Invalid content_type")
 
+    request.search_mode = (request.search_mode or "auto").strip().lower()
+    if request.search_mode not in ALLOWED_SEARCH_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid search_mode. Allowed: {sorted(ALLOWED_SEARCH_MODES)}",
+        )
+
     try:
         pipeline = get_pipeline()
         results = pipeline.search(
@@ -294,10 +435,14 @@ def search(request: SearchRequest):
             top_k=request.top_k,
             content_type=request.content_type,
             video_name=request.video_name.strip() if request.video_name else None,
+            search_mode=request.search_mode,
         )
 
         formatted = [_format_search_result(r) for r in results]
-        return {"results": formatted}
+        return {
+            "search_mode": request.search_mode,
+            "results": formatted,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -347,12 +492,12 @@ def upload_video(
     upload_dir = Path(get_data_path(config["paths"].get("raw_dir", "data/raw")))
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    save_path = upload_dir / safe_name
-    already_exists = save_path.exists()
-
     try:
+        file_bytes = file.file.read()
+        save_path = _make_non_overwriting_upload_path(upload_dir, safe_name, file_bytes)
+
         with save_path.open("wb") as f:
-            shutil.copyfileobj(file.file, f)
+            f.write(file_bytes)
 
         pipeline = get_pipeline()
         result = pipeline.process_video(str(save_path), reset_index=reset_index)
@@ -360,17 +505,13 @@ def upload_video(
         return {
             "uploaded_path": str(save_path),
             "result": result,
-            "message": (
-                f"Uploaded and processed '{safe_name}'. Existing file was overwritten."
-                if already_exists
-                else f"Uploaded and processed '{safe_name}'."
-            ),
+            "message": f"Uploaded and processed '{save_path.name}'.",
         }
     except HTTPException:
         raise
     except Exception as e:
         try:
-            if save_path.exists():
+            if "save_path" in locals() and save_path.exists():
                 save_path.unlink()
         except Exception:
             pass

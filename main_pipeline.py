@@ -305,12 +305,14 @@ class MediaDataPipeline:
         top_k: int = 5,
         content_type: Optional[str] = None,
         video_name: Optional[str] = None,
+        search_mode: Optional[str] = "auto",
     ):
         return self.search_engine.search(
             query=query,
             top_k=top_k,
             content_type=content_type,
             video_name=video_name,
+            search_mode=search_mode,
         )
 
 

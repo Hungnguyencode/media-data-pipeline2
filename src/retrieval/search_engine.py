@@ -43,7 +43,10 @@ class SearchEngine:
         self.query_action_groups: Dict[str, Set[str]] = {
             "break_open": {
                 "break", "breaking", "crack", "cracking", "open", "opening",
-                "split", "splitting", "separate", "separating", "shell", "shelling",
+                "split", "splitting", "shell", "shelling",
+            },
+            "separate_egg_parts": {
+                "separate", "separating", "yolk", "white", "egg white", "egg yolk",
             },
             "cut_divide": {
                 "cut", "cutting", "slice", "slicing", "chop", "chopping",
@@ -230,6 +233,19 @@ class SearchEngine:
     def _contains_number_two(self, text: str) -> bool:
         normalized = f" {self._normalize_text(text)} "
         return (" two " in normalized) or (" 2 " in normalized)
+    
+    def _normalize_search_mode(self, search_mode: Optional[str]) -> str:
+        mode = (search_mode or "auto").strip().lower()
+        allowed = {"auto", "action", "visual", "topic", "audio"}
+        if mode not in allowed:
+            raise ValueError(f"Invalid search_mode: {mode}")
+        return mode
+
+    def _resolve_query_type(self, query: str, search_mode: Optional[str] = None) -> str:
+        mode = self._normalize_search_mode(search_mode)
+        if mode == "auto":
+            return self._classify_query_type(query)
+        return mode
 
     def _classify_query_type(self, query: str) -> str:
         tokens = self._tokenize(query)
@@ -288,6 +304,21 @@ class SearchEngine:
             if tokens.intersection(vocab):
                 matched_groups.add(group)
         return matched_groups
+    
+    def _extract_query_objects(self, query: str) -> Set[str]:
+        return self._tokenize(query).intersection(self.object_like_tokens)
+
+    def _result_tokens(self, item: Dict[str, Any]) -> Set[str]:
+        meta = item.get("metadata", {}) or {}
+        text = " ".join(
+            [
+                str(meta.get("caption_text_original", "") or ""),
+                str(meta.get("search_text", "") or ""),
+                str(meta.get("action_aliases", "") or ""),
+                str(item.get("document", "") or ""),
+            ]
+        )
+        return self._tokenize(text)
 
     def _display_text_for_result(self, item: Dict[str, Any]) -> str:
         meta = item.get("metadata", {}) or {}
@@ -408,10 +439,16 @@ class SearchEngine:
         elif query_type == "visual":
             if style in {"visual", "cinematic_music"}:
                 bonus += self.visual_bonus_for_visual_video
-            if content_type == "caption":
-                bonus += 0.02
-            if content_type == "multimodal":
-                bonus += 0.01
+                if content_type == "caption":
+                    bonus += 0.02
+                if content_type == "multimodal":
+                    bonus += 0.01
+            else:
+                # Không thưởng visual query cho video style action/generic
+                if content_type == "caption":
+                    bonus += 0.0
+                if content_type == "multimodal":
+                    bonus -= 0.01
 
         elif query_type == "audio":
             if style == "talk" and content_type in {"transcription", "segment_chunk", "multimodal"}:
@@ -431,7 +468,16 @@ class SearchEngine:
             return 0.02
 
         if style == "action" and query_type == "action" and content_type in {"caption", "multimodal"}:
-            return 0.02
+            result_groups = self._extract_action_groups_from_result(item)
+
+            if "pour_transfer" in result_groups:
+                return -0.02
+
+            if result_groups:
+                return 0.02
+
+            # Không phạt âm mặc định cho mọi action result nữa
+            return 0.0
 
         return 0.0
 
@@ -464,6 +510,84 @@ class SearchEngine:
             bonus += 0.02
 
         return round(bonus, 6)
+    
+    def _build_ranking_explanation(
+        self,
+        item: Dict[str, Any],
+        query: str,
+        query_type: str,
+        semantic_bonus: float,
+        metadata_bonus: float,
+        style_bonus: float,
+    ) -> Dict[str, Any]:
+        meta = item.get("metadata", {}) or {}
+
+        query_groups = self._extract_query_action_groups(query)
+        result_groups = self._extract_action_groups_from_result(item)
+
+        query_objects = self._extract_query_objects(query)
+        result_tokens = self._result_tokens(item)
+        matched_objects = sorted(query_objects.intersection(result_tokens))
+        matched_action_groups = sorted(query_groups.intersection(result_groups))
+
+        content_type = str(meta.get("content_type", "") or "")
+        style = str(meta.get("estimated_content_style", "") or "")
+
+        matched_signals: List[str] = []
+        reasons: List[str] = []
+
+        if matched_action_groups:
+            matched_signals.append("action_match")
+            reasons.append(f"matched action group(s): {', '.join(matched_action_groups)}")
+
+        if matched_objects:
+            matched_signals.append("object_match")
+            reasons.append(f"matched object(s): {', '.join(matched_objects)}")
+
+        if semantic_bonus > 0:
+            matched_signals.append("semantic_bonus")
+            reasons.append(f"semantic bonus {semantic_bonus:+.3f}")
+
+        if metadata_bonus > 0:
+            matched_signals.append("metadata_boost")
+            reasons.append(
+                f"metadata boost for style='{style or 'unknown'}' and content_type='{content_type or 'unknown'}'"
+            )
+
+        if style_bonus > 0:
+            matched_signals.append("style_boost")
+            reasons.append(f"style-aware boost {style_bonus:+.3f}")
+
+        if semantic_bonus < 0:
+            matched_signals.append("semantic_penalty")
+            reasons.append(f"semantic penalty {semantic_bonus:+.3f}")
+
+        if style_bonus < 0:
+            matched_signals.append("style_penalty")
+            reasons.append(f"style-aware penalty {style_bonus:+.3f}")
+
+        if not reasons:
+            reasons.append("base hybrid similarity match")
+
+        explanation_text = "; ".join(reasons)
+
+        return {
+            "matched_signals": matched_signals,
+            "ranking_explanation": explanation_text,
+            "score_breakdown": {
+                "base_fusion_score": round(float(item.get("fusion_score", 0.0)), 6),
+                "semantic_bonus": round(float(semantic_bonus), 6),
+                "metadata_bonus": round(float(metadata_bonus), 6),
+                "style_bonus": round(float(style_bonus), 6),
+                "final_score": round(
+                    float(item.get("fusion_score", 0.0) + semantic_bonus + metadata_bonus + style_bonus),
+                    6,
+                ),
+            },
+            "matched_action_groups": matched_action_groups,
+            "matched_objects": matched_objects,
+            "resolved_query_type": query_type,
+        }
 
     def _soft_semantic_bonus(self, item: Dict[str, Any], query: str) -> float:
         meta = item.get("metadata", {}) or {}
@@ -524,6 +648,80 @@ class SearchEngine:
 
         human_scene_bonus = self._human_scene_bonus(item, query)
 
+        query_objects = self._extract_query_objects(query)
+        result_tokens = self._result_tokens(item)
+
+        strong_negative_penalty = 0.0
+
+        if has_action_query:
+            if "pour_transfer" in query_groups:
+                wants_specific_liquid = query_objects.intersection({"water", "milk", "oil", "juice", "sauce", "cream"})
+                result_has_same_liquid = bool(result_tokens.intersection(wants_specific_liquid))
+                result_has_generic_liquid = bool(result_tokens.intersection({"liquid"}))
+                result_has_pour_action = "pour_transfer" in result_groups
+                result_has_container = bool(result_tokens.intersection({"glass", "cup", "bowl", "container"}))
+
+                if wants_specific_liquid:
+                    if not result_has_pour_action:
+                        strong_negative_penalty -= 0.12
+
+                    if not result_has_same_liquid:
+                        strong_negative_penalty -= 0.18
+
+                    if result_has_generic_liquid and not result_has_same_liquid:
+                        strong_negative_penalty -= 0.10
+
+                    if result_has_container and not result_has_same_liquid:
+                        strong_negative_penalty -= 0.06
+
+                    if self._is_static_object_caption(original_caption):
+                        strong_negative_penalty -= 0.08
+
+            if "cut_divide" in query_groups:
+                wants_cut_object = bool(
+                    query_objects.intersection({"onion", "garlic", "tomato", "fruit"})
+                )
+                result_has_cut_action = "cut_divide" in result_groups
+                result_has_cut_object = bool(
+                    result_tokens.intersection({"onion", "garlic", "tomato", "fruit", "knife"})
+                )
+
+                if wants_cut_object:
+                    if not result_has_cut_action:
+                        strong_negative_penalty -= 0.12
+                    if not result_has_cut_object:
+                        strong_negative_penalty -= 0.10
+                    if self._is_static_object_caption(original_caption):
+                        strong_negative_penalty -= 0.08
+
+            if "break_open" in query_groups:
+                wants_egg = bool(query_objects.intersection({"egg", "eggs", "yolk", "white"}))
+                result_has_break_action = "break_open" in result_groups
+                result_has_egg = bool(result_tokens.intersection({"egg", "eggs", "yolk", "white", "shell"}))
+
+                if wants_egg:
+                    if not result_has_break_action:
+                        strong_negative_penalty -= 0.04
+                    if not result_has_egg:
+                        strong_negative_penalty -= 0.08
+
+            if "separate_egg_parts" in query_groups:
+                    result_has_egg = bool(
+                        result_tokens.intersection({"egg", "eggs", "yolk", "white", "bowl", "spoon"})
+                    )
+                    result_has_related_action = bool(
+                        result_groups.intersection({"break_open", "hold_pick_place", "mix_agitate"})
+                    )
+
+                    if result_has_egg:
+                        object_bonus += 0.03
+
+                    if result_has_related_action:
+                        action_bonus += 0.03
+
+                    if not result_has_egg:
+                        strong_negative_penalty -= 0.10
+
         final_bonus = (
             token_bonus
             + alias_bonus
@@ -532,26 +730,52 @@ class SearchEngine:
             + static_penalty
             + modality_bonus
             + human_scene_bonus
+            + strong_negative_penalty
         )
         return round(final_bonus, 6)
 
-    def _apply_soft_rerank(self, results: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+    def _apply_soft_rerank(
+        self,
+        results: List[Dict[str, Any]],
+        query: str,
+        query_type: Optional[str] = None,
+        search_mode: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         reranked: List[Dict[str, Any]] = []
-        query_type = self._classify_query_type(query)
+        resolved_query_type = query_type or self._resolve_query_type(query, search_mode)
 
         for item in results:
             semantic_bonus = self._soft_semantic_bonus(item, query)
-            metadata_bonus = self._metadata_bonus(item, query_type)
-            style_bonus = self._style_aware_modality_bonus(item, query_type)
+            metadata_bonus = self._metadata_bonus(item, resolved_query_type)
+            style_bonus = self._style_aware_modality_bonus(item, resolved_query_type)
             total_bonus = semantic_bonus + metadata_bonus + style_bonus
 
             updated = dict(item)
-            updated["fusion_score"] = round(updated.get("fusion_score", 0.0) + total_bonus, 6)
-            updated["relevance"] = updated["fusion_score"]
-            updated["query_type"] = query_type
+            base_score = float(updated.get("fusion_score", 0.0))
+            final_score = round(base_score + total_bonus, 6)
+
+            updated["fusion_score"] = final_score
+            updated["relevance"] = final_score
+            updated["query_type"] = resolved_query_type
+            updated["search_mode"] = self._normalize_search_mode(search_mode)
 
             if total_bonus != 0:
                 updated["score_type"] = "hybrid_fusion+rerank"
+
+            explanation = self._build_ranking_explanation(
+                item=item,
+                query=query,
+                query_type=resolved_query_type,
+                semantic_bonus=semantic_bonus,
+                metadata_bonus=metadata_bonus,
+                style_bonus=style_bonus,
+            )
+
+            updated["matched_signals"] = explanation["matched_signals"]
+            updated["ranking_explanation"] = explanation["ranking_explanation"]
+            updated["score_breakdown"] = explanation["score_breakdown"]
+            updated["matched_action_groups"] = explanation["matched_action_groups"]
+            updated["matched_objects"] = explanation["matched_objects"]
 
             reranked.append(updated)
 
@@ -780,6 +1004,7 @@ class SearchEngine:
         top_k: int = 5,
         content_type: Optional[str] = None,
         video_name: Optional[str] = None,
+        search_mode: Optional[str] = "auto",
     ) -> List[Dict[str, Any]]:
         query = query.strip()
         if not query:
@@ -789,6 +1014,9 @@ class SearchEngine:
             top_k = self.default_top_k
         if top_k > self.max_top_k:
             top_k = self.max_top_k
+
+        normalized_search_mode = self._normalize_search_mode(search_mode)
+        resolved_query_type = self._resolve_query_type(query, normalized_search_mode)
 
         candidate_k = min(self.max_top_k, max(top_k, top_k * self.hybrid_candidate_multiplier))
         where_clause = self._build_where_clause(content_type=content_type, video_name=video_name)
@@ -810,7 +1038,9 @@ class SearchEngine:
         )
 
         clip_results: List[Dict[str, Any]] = []
-        if content_type in (None, "caption", "multimodal"):
+        should_use_clip = resolved_query_type != "audio"
+
+        if should_use_clip and content_type in (None, "caption", "multimodal"):
             clip_where = self._build_where_clause(content_type="caption", video_name=video_name)
             clip_query_embedding = self.vision_processor.encode_text_for_clip([query])[0]
             clip_results = self._query_collection(
@@ -823,10 +1053,39 @@ class SearchEngine:
             )
 
         fused_results = self._fuse_results(text_results, clip_results)
-        reranked_results = self._apply_soft_rerank(fused_results, query)
+        reranked_results = self._apply_soft_rerank(
+            fused_results,
+            query,
+            query_type=resolved_query_type,
+            search_mode=normalized_search_mode,
+        )
 
-        # Vòng 2: Cross-Encoder reranking
         reranked_results = self.cross_encoder_reranker.rerank(query, reranked_results)
 
+        for item in reranked_results:
+            item["search_mode"] = normalized_search_mode
+            item["query_type"] = resolved_query_type
+
         final_results = self._group_results_into_events(reranked_results, top_k=top_k)
+
+        if resolved_query_type == "action":
+            min_score_threshold = 0.25
+        elif resolved_query_type == "visual":
+            min_score_threshold = 0.30
+        elif resolved_query_type == "topic":
+            min_score_threshold = 0.18
+        elif resolved_query_type == "audio":
+            min_score_threshold = 0.12
+        else:
+            min_score_threshold = 0.15
+
+        final_results = [
+            item for item in final_results
+            if item.get("fusion_score", 0.0) >= min_score_threshold
+        ]
+
+        for item in final_results:
+            item["search_mode"] = normalized_search_mode
+            item["query_type"] = resolved_query_type
+
         return final_results
