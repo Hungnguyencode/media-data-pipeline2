@@ -8,7 +8,7 @@ import api.main as api_main
 
 
 class FakeSearchEngine:
-    def search(self, query, top_k=5, content_type=None, video_name=None):
+    def search(self, query, top_k=5, content_type=None, video_name=None, search_mode="auto"):
         return [
             {
                 "document": "artificial intelligence introduction",
@@ -121,12 +121,13 @@ class FakePipeline:
         self.search_engine = FakeSearchEngine()
         self.vector_indexer = FakeVectorIndexer()
 
-    def search(self, query, top_k=5, content_type=None, video_name=None):
+    def search(self, query, top_k=5, content_type=None, video_name=None, search_mode="auto"):
         return self.search_engine.search(
             query=query,
             top_k=top_k,
             content_type=content_type,
             video_name=video_name,
+            search_mode=search_mode,
         )
 
     def process_video(self, video_path, reset_index=False, source_metadata=None):

@@ -62,6 +62,12 @@ retrieval:
   visual_bonus_for_visual_video: 0.06
   audio_penalty_for_cinematic_music: 0.08
   multimodal_bonus_for_talk: 0.04
+  min_score_thresholds:
+    action: 0.25
+    visual: 0.30
+    topic: 0.18
+    audio: 0.12
+    generic: 0.15
 
 vector_db:
   text_collection_name: "video_semantic_search_text"

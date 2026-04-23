@@ -12,6 +12,7 @@ import torch
 from PIL import Image
 from transformers import BlipForConditionalGeneration, BlipProcessor
 
+from src.domain import ACTION_GROUPS
 from src.utils import get_config, get_data_path, normalize_device, release_memory
 
 logger = logging.getLogger(__name__)
@@ -50,89 +51,7 @@ class VisionProcessor:
         )
         self.processed_dir.mkdir(parents=True, exist_ok=True)
 
-        self.action_families: Dict[str, List[str]] = {
-            "break_open": [
-                "break",
-                "breaking",
-                "break open",
-                "breaking open",
-                "crack",
-                "cracking",
-                "split",
-                "splitting",
-                "split open",
-                "open",
-                "opening",
-                "separate",
-                "separating",
-                "shell",
-                "shelling",
-            ],
-            "peel_remove_outer": [
-                "peel",
-                "peeling",
-                "remove peel",
-                "removing peel",
-                "remove shell",
-                "removing shell",
-                "strip",
-                "stripping",
-            ],
-            "cut_divide": [
-                "cut",
-                "cutting",
-                "slice",
-                "slicing",
-                "chop",
-                "chopping",
-                "dice",
-                "dicing",
-                "halve",
-                "halving",
-            ],
-            "mix_agitate": [
-                "mix",
-                "mixing",
-                "stir",
-                "stirring",
-                "whisk",
-                "whisking",
-                "beat",
-                "beating",
-                "blend",
-                "blending",
-            ],
-            "pour_transfer": [
-                "pour",
-                "pouring",
-                "add",
-                "adding",
-                "transfer",
-                "transferring",
-                "empty",
-                "emptying",
-            ],
-            "hold_pick_place": [
-                "hold",
-                "holding",
-                "pick up",
-                "picking up",
-                "place",
-                "placing",
-                "put",
-                "putting",
-                "grab",
-                "grabbing",
-            ],
-            "squeeze_press": [
-                "squeeze",
-                "squeezing",
-                "press",
-                "pressing",
-                "pinch",
-                "pinching",
-            ],
-        }
+        self.action_families: Dict[str, List[str]] = {group: list(values) for group, values in ACTION_GROUPS.items()}
 
         self.openable_object_cues: Set[str] = {
             "egg",

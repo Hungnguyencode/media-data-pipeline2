@@ -17,6 +17,7 @@ from src.utils import (
     get_data_path,
     get_video_catalog_entry,
     load_video_catalog,
+    looks_like_pytest_temp_path,
     resolve_video_path_from_catalog_entry,
     sanitize_filename_component,
     sanitize_video_catalog,
@@ -113,11 +114,6 @@ def _format_search_result(result: dict) -> dict:
         "ranking_explanation": result.get("ranking_explanation", ""),
         "score_breakdown": result.get("score_breakdown", {}),
     }
-
-
-def _looks_like_pytest_temp_path(path_value: str) -> bool:
-    normalized = str(path_value or "").replace("\\", "/").lower()
-    return "pytest-of-" in normalized or "/temp/pytest-" in normalized
 
 
 def _resolve_video_path_from_catalog_or_raw(video_name: str, entry: dict) -> Path:
@@ -382,7 +378,7 @@ def sanitize_catalog():
             local_video_path = str(item.get("local_video_path", "")).strip()
 
             should_remove = False
-            if local_video_path and _looks_like_pytest_temp_path(local_video_path):
+            if local_video_path and looks_like_pytest_temp_path(local_video_path):
                 fallback = raw_dir / video_name
                 if not fallback.exists():
                     should_remove = True

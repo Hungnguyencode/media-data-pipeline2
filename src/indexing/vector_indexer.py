@@ -47,7 +47,7 @@ class VectorIndexer:
             self.config.get("pipeline", {}).get("caption_merge_window_sec", 3.0)
         )
         self.caption_dedup_min_gap_sec = float(
-            self.config.get("pipeline", {}).get("caption_dedup_min_gap_sec", 4.0)
+            self.config.get("pipeline", {}).get("caption_dedup_min_gap_sec", 2.0)
         )
         self.enable_multimodal_documents = bool(
             self.config.get("pipeline", {}).get("enable_multimodal_documents", True)
@@ -590,7 +590,7 @@ class VectorIndexer:
         captions_data: List[Dict[str, Any]],
         video_source_info: Optional[Dict[str, Any]] = None,
     ) -> int:
-        dedup_gap_sec = float(getattr(self, "caption_dedup_min_gap_sec", 4.0))
+        dedup_gap_sec = float(getattr(self, "caption_dedup_min_gap_sec", 2.0))
 
         captions_data = self._deduplicate_caption_records(
             captions_data,

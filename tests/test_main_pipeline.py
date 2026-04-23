@@ -92,7 +92,7 @@ class FakeNoAudioVectorIndexer:
 
 
 class FakeSearchEngine:
-    def search(self, query, top_k=5, content_type=None, video_name=None):
+    def search(self, query, top_k=5, content_type=None, video_name=None, search_mode="auto"):
         return [
             {
                 "document": "demo semantic result",

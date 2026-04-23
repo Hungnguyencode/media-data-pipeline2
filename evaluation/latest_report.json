@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-23T00:07:19",
+  "generated_at": "2026-04-23T18:11:57",
   "benchmark_file": "C:\\Users\\Admin\\media-data-pipeline2\\evaluation\\benchmark_cases.json",
   "output_file": "C:\\Users\\Admin\\media-data-pipeline2\\evaluation\\latest_report.json",
   "reranker_enabled": false,
@@ -164,17 +164,15 @@
           "top_k": 5,
           "result_count": 5,
           "top_result_preview": {
-            "fusion_score": 0.582142,
+            "fusion_score": 0.510163,
             "query_type": "action",
             "search_mode": "action",
             "matched_signals": [
-              "object_match",
-              "semantic_bonus",
               "metadata_boost",
-              "style_boost"
+              "semantic_penalty"
             ],
-            "ranking_explanation": "matched object(s): egg; semantic bonus +0.037; metadata boost for style='action' and content_type='caption'; style-aware boost +0.020",
-            "display_text": "A person is putting an egg in a bowl"
+            "ranking_explanation": "metadata boost for style='action' and content_type='caption'; semantic penalty -0.008",
+            "display_text": "A glass bowl filled with eggs and a metal spoon"
           }
         },
         {
@@ -208,19 +206,20 @@
           "search_mode": "action",
           "content_type": "all",
           "hit": true,
-          "matched_rank": 4,
+          "matched_rank": 3,
           "top_k": 5,
           "result_count": 5,
           "top_result_preview": {
-            "fusion_score": 0.510163,
+            "fusion_score": 0.42553,
             "query_type": "action",
             "search_mode": "action",
             "matched_signals": [
+              "object_match",
               "metadata_boost",
               "semantic_penalty"
             ],
-            "ranking_explanation": "metadata boost for style='action' and content_type='caption'; semantic penalty -0.008",
-            "display_text": "A glass bowl filled with eggs and a metal spoon"
+            "ranking_explanation": "matched object(s): egg; metadata boost for style='action' and content_type='caption'; semantic penalty -0.118",
+            "display_text": "A bowl with an egg in it"
           }
         }
       ]
@@ -321,19 +320,14 @@
       "hit": false,
       "matched_rank": null,
       "top_k": 5,
-      "result_count": 1,
+      "result_count": 0,
       "top_result_preview": {
-        "fusion_score": 0.305899,
-        "query_type": "action",
-        "search_mode": "action",
-        "matched_signals": [
-          "action_match",
-          "metadata_boost",
-          "semantic_penalty",
-          "style_penalty"
-        ],
-        "ranking_explanation": "matched action group(s): pour_transfer; metadata boost for style='action' and content_type='caption'; semantic penalty -0.178; style-aware penalty -0.020",
-        "display_text": "A person is pouring a liquid into a glass"
+        "fusion_score": null,
+        "query_type": null,
+        "search_mode": null,
+        "matched_signals": [],
+        "ranking_explanation": "",
+        "display_text": ""
       },
       "all_mode_reports": [
         {
@@ -345,19 +339,14 @@
           "hit": false,
           "matched_rank": null,
           "top_k": 5,
-          "result_count": 1,
+          "result_count": 0,
           "top_result_preview": {
-            "fusion_score": 0.305899,
-            "query_type": "action",
-            "search_mode": "action",
-            "matched_signals": [
-              "action_match",
-              "metadata_boost",
-              "semantic_penalty",
-              "style_penalty"
-            ],
-            "ranking_explanation": "matched action group(s): pour_transfer; metadata boost for style='action' and content_type='caption'; semantic penalty -0.178; style-aware penalty -0.020",
-            "display_text": "A person is pouring a liquid into a glass"
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
           }
         },
         {
@@ -388,19 +377,14 @@
           "hit": false,
           "matched_rank": null,
           "top_k": 5,
-          "result_count": 1,
+          "result_count": 0,
           "top_result_preview": {
-            "fusion_score": 0.305899,
-            "query_type": "action",
-            "search_mode": "action",
-            "matched_signals": [
-              "action_match",
-              "metadata_boost",
-              "semantic_penalty",
-              "style_penalty"
-            ],
-            "ranking_explanation": "matched action group(s): pour_transfer; metadata boost for style='action' and content_type='caption'; semantic penalty -0.178; style-aware penalty -0.020",
-            "display_text": "A person is pouring a liquid into a glass"
+            "fusion_score": null,
+            "query_type": null,
+            "search_mode": null,
+            "matched_signals": [],
+            "ranking_explanation": "",
+            "display_text": ""
           }
         }
       ]

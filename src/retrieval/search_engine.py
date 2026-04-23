@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from src.indexing.vector_indexer import VectorIndexer
 from src.transform.vision_processor import VisionProcessor
 from src.utils import get_config
+from src.domain import action_groups_as_sets
 
 logger = logging.getLogger(__name__)
 
@@ -40,37 +41,18 @@ class SearchEngine:
         self.audio_penalty_for_cinematic_music = float(retrieval_cfg.get("audio_penalty_for_cinematic_music", 0.08))
         self.multimodal_bonus_for_talk = float(retrieval_cfg.get("multimodal_bonus_for_talk", 0.04))
 
-        self.query_action_groups: Dict[str, Set[str]] = {
-            "break_open": {
-                "break", "breaking", "crack", "cracking", "open", "opening",
-                "split", "splitting", "shell", "shelling",
+        self.min_score_thresholds = retrieval_cfg.get(
+            "min_score_thresholds",
+            {
+                "action": 0.25,
+                "visual": 0.30,
+                "topic": 0.18,
+                "audio": 0.12,
+                "generic": 0.15,
             },
-            "separate_egg_parts": {
-                "separate", "separating", "yolk", "white", "egg white", "egg yolk",
-            },
-            "cut_divide": {
-                "cut", "cutting", "slice", "slicing", "chop", "chopping",
-                "dice", "dicing", "halve", "halving",
-            },
-            "mix_agitate": {
-                "mix", "mixing", "stir", "stirring", "whisk", "whisking",
-                "beat", "beating", "blend", "blending",
-            },
-            "pour_transfer": {
-                "pour", "pouring", "add", "adding", "transfer", "transferring",
-                "empty", "emptying",
-            },
-            "peel_remove_outer": {
-                "peel", "peeling", "remove", "removing", "strip", "stripping",
-            },
-            "hold_pick_place": {
-                "hold", "holding", "pick", "picking", "place", "placing",
-                "put", "putting", "grab", "grabbing",
-            },
-            "squeeze_press": {
-                "squeeze", "squeezing", "press", "pressing", "pinch", "pinching",
-            },
-        }
+        )
+
+        self.query_action_groups: Dict[str, Set[str]] = action_groups_as_sets()
 
         self.object_like_tokens: Set[str] = {
             "egg", "eggs", "milk", "water", "oil", "juice", "sauce", "cream",
@@ -1068,16 +1050,18 @@ class SearchEngine:
 
         final_results = self._group_results_into_events(reranked_results, top_k=top_k)
 
+        thresholds = self.min_score_thresholds or {}
+
         if resolved_query_type == "action":
-            min_score_threshold = 0.25
+            min_score_threshold = float(thresholds.get("action", 0.25))
         elif resolved_query_type == "visual":
-            min_score_threshold = 0.30
+            min_score_threshold = float(thresholds.get("visual", 0.30))
         elif resolved_query_type == "topic":
-            min_score_threshold = 0.18
+            min_score_threshold = float(thresholds.get("topic", 0.18))
         elif resolved_query_type == "audio":
-            min_score_threshold = 0.12
+            min_score_threshold = float(thresholds.get("audio", 0.12))
         else:
-            min_score_threshold = 0.15
+            min_score_threshold = float(thresholds.get("generic", 0.15))
 
         final_results = [
             item for item in final_results
